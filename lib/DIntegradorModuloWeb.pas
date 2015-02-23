@@ -768,7 +768,7 @@ var
 begin
   if translation.lookupRemoteTable <> '' then
   begin
-    if field.AsInteger > 0 then
+    if trim(field.AsString) <> '' then
     begin
       lookupIdRemoto := dmPrincipal.getSQLIntegerResult('SELECT idRemoto FROM ' +
         translation.lookupRemoteTable +
