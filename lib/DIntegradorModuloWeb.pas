@@ -823,7 +823,7 @@ begin
   SetLength(tabelasDependentes, 0);
   nomeGenerator := '';
   useMultipartParams := false;
-  zippedPost := true;
+  zippedPost := false;
 end;
 
 
