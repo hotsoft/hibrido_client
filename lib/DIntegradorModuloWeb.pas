@@ -411,7 +411,7 @@ begin
       nome := nomeSingularSave + nestingText + '[' + translations.get(i).server + ']';
       valor :=
         translateValueToServer(translations.get(i), translations.get(i).pdv,
-          ds.fieldByName(translations.get(i).pdv), nestedAttribute, translations.get(i).fkName));
+          ds.fieldByName(translations.get(i).pdv), nestedAttribute, translations.get(i).fkName);
       //params.Add(nome + '=' + TIdURI.ParamsEncode(valor));
       params.Add(nome + '=' + valor);
     end;
