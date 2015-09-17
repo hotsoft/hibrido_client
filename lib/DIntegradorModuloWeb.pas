@@ -40,6 +40,8 @@ type
     nomeFK: string;
     nomePK: string;
     nomeParametro: string;
+    nomeSingularDetalhe : string;
+    nomePluralDetalhe : string;
     tabelasDetalhe: array of TTabelaDetalhe;
     translations: TTranslationSet;
     constructor create;
@@ -56,6 +58,7 @@ type
     procedure addTabelaDetalheParams(valorPK: integer;
       params: TStringList;
       tabelaDetalhe: TTabelaDetalhe);
+    procedure UpdateRecordDetalhe(pNode: IXMLDomNode; pTabelasDetalhe : array of TTabelaDetalhe);
   protected
     nomeTabela: string;
     nomeSingular: string;
@@ -245,6 +248,40 @@ begin
     dmPrincipal.execSQL(getUpdateBaseSQL(node) + ' WHERE ' + nomePKLocal + ' = ' + IntToStr(id), 3);
 end;
 
+procedure TDataIntegradorModuloWeb.UpdateRecordDetalhe(pNode: IXMLDomNode; pTabelasDetalhe : array of TTabelaDetalhe);
+var 
+   i,j : integer;
+   vNode : IXMLDomNode;
+   vNodeList, List: IXMLDOMNodeList;
+   vIdRemoto, vPkLocal : String;   
+   vNomePlural, vNomeSingular, no : string;
+begin                                                   
+  try
+    for i := low(pTabelasDetalhe) to high(pTabelasDetalhe) do
+    begin
+      vNomePlural := pTabelasDetalhe[i].nomePluralDetalhe;
+      vNomeSingular := pTabelasDetalhe[i].nomeSingularDetalhe;
+      
+      vNode := pNode.selectSingleNode('./' + dasherize(vNomePlural));      
+      vNodeList := vNode.selectNodes('./' + dasherize(vNomeSingular));
+         
+      for j := 0 to vNodeList.length - 1 do
+      begin
+        vIdRemoto := vNodeList[j].selectSingleNode('./id').text;  
+        vPkLocal := vNodeList[j].selectSingleNode('./original-id').text;  
+
+        if duasVias then        
+          dmPrincipal.execSQL('UPDATE ' + pTabelasDetalhe[i].nomeTabela + ' SET idRemoto = '
+                              + vIdRemoto + ' WHERE ' + pTabelasDetalhe[i].nomePK + ' = ' + vPkLocal) ;        
+      end;     
+      if Length(pTabelasDetalhe[i].tabelasDetalhe) > 0 then
+         Self.UpdateRecordDetalhe(vNode, pTabelasDetalhe[i].tabelasDetalhe);
+    end;
+  except
+    raise;
+  end;
+end;
+
 procedure TDataIntegradorModuloWeb.updateSingletonRecord(node: IXMLDOMNode);
 begin
   if dmPrincipal.getSQLIntegerResult('SELECT count(1) from ' + nomeTabela) < 1 then
@@ -400,9 +437,15 @@ var
   i: integer;
   nestingText, nomeCampo, nome, valor: string;
 begin
-  nestingText := '';
+  nestingText := '';  
   if nestedAttribute <> '' then
     nestingText := '[' + nestedAttribute + '][]';
+    
+  if (ds.FindField('idremoto') <> nil) and (ds.FieldByName('idremoto').AsInteger > 0) then
+  begin    
+    translations.add('id', 'idremoto');
+  end;
+    
   for i := 0 to translations.size-1 do
   begin
     nomeCampo := translations.get(i).pdv;
@@ -416,6 +459,8 @@ begin
       params.Add(nome + '=' + valor);
     end;
   end;
+  
+  
 end;
 
 function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet; var salvou: boolean): IXMLDomDocument2;
@@ -514,6 +559,9 @@ begin
             dmPrincipal.execSQL(txtUpdate);
 
           dmPrincipal.refreshData;
+
+          if Length(TabelasDetalhe) > 0 then          
+             Self.UpdateRecordDetalhe(doc.selectSingleNode(dasherize(nomeSingularSave)), TabelasDetalhe);
         end;
       except
         on e: Exception do
