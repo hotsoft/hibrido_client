@@ -140,7 +140,7 @@ var
   DataIntegradorModuloWeb: TDataIntegradorModuloWeb;
 implementation
 
-uses AguardeFormUn, ComObj, DLog;
+uses AguardeFormUn, ComObj, DLog, osErrorHandler;
 
 {$R *.dfm}
 
@@ -634,23 +634,33 @@ var
 begin
   qry := dmPrincipal.getQuery;
   dmPrincipal.startTransaction;
-  try try
-    DataLog.log('Selecionando registros para sincronização. Classe: ' + ClassName, 'Sync');
-    qry.commandText := 'SELECT * from ' + nomeTabela + ' where ((salvouRetaguarda = ' + QuotedStr('N') + ') or (salvouRetaguarda is null)) '
-      + getAdditionalSaveConditions;
-    qry.Open;
-    qry.First;
-    while not qry.Eof do
-    begin
-      saveRecordToRemote(qry, salvou);
-      qry.Next;
+  try 
+    try
+      DataLog.log('Selecionando registros para sincronização. Classe: ' + ClassName, 'Sync');
+      qry.commandText := 'SELECT * from ' + nomeTabela + ' where ((salvouRetaguarda = ' + QuotedStr('N') + ') or (salvouRetaguarda is null)) '
+        + getAdditionalSaveConditions;
+      qry.Open;
+      qry.First;
+      while not qry.Eof do
+      begin
+        saveRecordToRemote(qry, salvou);
+        qry.Next;
+      end;
+      dmPrincipal.commit;
+      DataLog.log('Commitando post de records para remote. Classe: ' + ClassName, 'Sync')
+    except     
+      on e: Exception do
+      begin
+        DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
+        HError.clear;
+        HError.Add('Erro na sincronização Online ' + #10#13 + 
+                   #10#13 + 'Tabela: ' + nomeTabela + #10#13 + 
+                   #10#13 + 'Mensagem: ' + e.Message + #10#13 + 
+                   #10#13 +'Contate Suporte Técnico HotSoft', etWarning);
+        HError.Check; 
+        raise;
+      end;   
     end;
-    dmPrincipal.commit;
-    DataLog.log('Commitando post de records para remote. Classe: ' + ClassName, 'Sync')
-  except
-    DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
-    raise;
-  end;
   finally
     FreeAndNil(qry);
   end;
