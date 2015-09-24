@@ -443,7 +443,9 @@ begin
     
   if (ds.FindField('idremoto') <> nil) and (ds.FieldByName('idremoto').AsInteger > 0) then
   begin    
-    translations.add('id', 'idremoto');
+    nome := nomeSingularSave + nestingText + '[id]';
+    valor := ds.FieldByName('idremoto').AsString; 
+    params.add(nome + '=' + valor);  
   end;
     
   for i := 0 to translations.size-1 do
