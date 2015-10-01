@@ -440,14 +440,7 @@ begin
   nestingText := '';  
   if nestedAttribute <> '' then
     nestingText := '[' + nestedAttribute + '][]';
-    
-  if (ds.FindField('idremoto') <> nil) and (ds.FieldByName('idremoto').AsInteger > 0) then
-  begin    
-    nome := nomeSingularSave + nestingText + '[id]';
-    valor := ds.FieldByName('idremoto').AsString; 
-    params.add(nome + '=' + valor);  
-  end;
-    
+        
   for i := 0 to translations.size-1 do
   begin
     nomeCampo := translations.get(i).pdv;
