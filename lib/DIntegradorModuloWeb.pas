@@ -645,14 +645,15 @@ begin
       DataLog.log('Commitando post de records para remote. Classe: ' + ClassName, 'Sync')
     except     
       on e: Exception do
-      begin
+      begin   
         DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
-        HError.clear;
-        HError.Add('Erro na sincronização Online ' + #10#13 + 
-                   #10#13 + 'Tabela: ' + nomeTabela + #10#13 + 
-                   #10#13 + 'Mensagem: ' + e.Message + #10#13 + 
-                   #10#13 +'Contate Suporte Técnico HotSoft', etWarning);
-        HError.Check; 
+        //DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
+        //HError.clear;
+        //HError.Add('Erro na sincronização Online ' + #10#13 + 
+        //           #10#13 + 'Tabela: ' + nomeTabela + #10#13 + 
+        //           #10#13 + 'Mensagem: ' + e.Message + #10#13 + 
+        //           #10#13 +'Contate Suporte Técnico HotSoft', etWarning);
+        //HError.Check; 
         raise;
       end;   
     end;
