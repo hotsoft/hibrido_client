@@ -593,7 +593,8 @@ begin
   qry := dmPrincipal.getQuery;
   try
     qry.commandText := 'SELECT * FROM ' + tabelaDetalhe.nomeTabela + ' where ' + tabelaDetalhe.nomeFK +
-      ' = ' + IntToStr(valorPK);
+      ' = ' + IntToStr(valorPK) + ' and ((salvouRetaguarda = ''N'') or (salvouRetaguarda is null)' +
+                                                                 ' or (salvouRetaguarda = ''''))';
     qry.Open;
     while not qry.Eof do
     begin
