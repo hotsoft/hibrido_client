@@ -475,7 +475,7 @@ var
   url, s: string;
   a,b: cardinal;
 begin
-  DataLog.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
+//  DataLog.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
   salvou := false;
   http := TIdHTTP.Create(nil);
   params := TStringList.Create;
@@ -628,6 +628,7 @@ procedure TDataIntegradorModuloWeb.postRecordsToRemote;
 var
   qry: TSQLDataSet;
   salvou: boolean;
+  i, j: Integer;
 begin
   qry := dmPrincipal.getQuery;
   dmPrincipal.startTransaction;
@@ -637,18 +638,25 @@ begin
       qry.commandText := 'SELECT * from ' + nomeTabela + ' where ((salvouRetaguarda = ' + QuotedStr('N') + ') or (salvouRetaguarda is null)) '
         + getAdditionalSaveConditions;
       qry.Open;
+      i := qry.RecordCount;     
+      DataLog.log(IntToStr(i) +' Selecionados: ' + ClassName, 'Sync');
       qry.First;
+      j := 0;
       while not qry.Eof do
       begin
         saveRecordToRemote(qry, salvou);
         qry.Next;
+        inc(j);
+        if (j mod 10) = 0 then
+          DataLog.log('Enviando ' + IntToStr(j) +' de ' + IntToStr(i) , 'Sync');
       end;
+      DataLog.log(IntToStr(i) +' Enviados: ' + ClassName, 'Sync');
       dmPrincipal.commit;
       DataLog.log('Commitando post de records para remote. Classe: ' + ClassName, 'Sync')
     except     
       on e: Exception do
       begin   
-        DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
+        DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
         //DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
         //HError.clear;
         //HError.Add('Erro na sincronização Online ' + #10#13 + 
