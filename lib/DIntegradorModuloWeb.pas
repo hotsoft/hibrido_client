@@ -273,7 +273,7 @@ begin
         if duasVias then        
           dmPrincipal.execSQL('UPDATE ' + pTabelasDetalhe[i].nomeTabela + ' SET salvouRetaguarda = ' + 
                           QuotedStr('S') + ', idRemoto = ' + vIdRemoto + 
-                          ' WHERE ' + pTabelasDetalhe[i].nomePK + ' = ' + vPkLocal) ;        
+                          ' WHERE salvouRetaguarda = ''N'' and ' + pTabelasDetalhe[i].nomePK + ' = ' + vPkLocal) ;        
       end;     
       if Length(pTabelasDetalhe[i].tabelasDetalhe) > 0 then
          Self.UpdateRecordDetalhe(vNode, pTabelasDetalhe[i].tabelasDetalhe);
