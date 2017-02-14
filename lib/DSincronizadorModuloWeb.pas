@@ -4,7 +4,7 @@ interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-    ISincronizacaoNotifierUnit;
+  ISincronizacaoNotifierUnit, DLog;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
@@ -17,6 +17,8 @@ type
   private
     atualizando: boolean;
     FonStepGetters: TStepGettersEvent;
+    FEnderecoIntegrador : string;
+    FDataLog: TDataLog;
     procedure SetonStepGetters(const Value: TStepGettersEvent);
   protected
     posterDataModules: array of TDataIntegradorModuloWebClass;
@@ -33,6 +35,7 @@ type
     procedure threadedGetUpdatedData;
     procedure threadedSaveAllToRemote;
     property notifier: ISincronizacaoNotifier read FNotifier write FNotifier;
+    procedure setEnderecoIntegrador(const Value: string);
   published
     property onStepGetters: TStepGettersEvent read FonStepGetters write SetonStepGetters;
   end;
@@ -75,7 +78,7 @@ var
 
 implementation
 
-uses ComObj, DLog;
+uses ComObj, Forms;
 
 {$R *.dfm}
 
@@ -99,26 +102,47 @@ begin
   dm := getNewDataPrincipal;
   if dm.sincronizar then
   begin
-    try try
-      for i := 0 to length(posterDataModules)-1 do
-      begin
-        dmIntegrador := posterDataModules[i].Create(nil);
-        try
-          dmIntegrador.notifier := FNotifier;
-          dmIntegrador.dmPrincipal := dm;
-          dmIntegrador.postRecordsToRemote;
-        finally
-          FreeAndNil(dmIntegrador);
+    FDataLog := TDataLog.Create(Self);
+    try
+      FDataLog.baseDir := ExtractFileDir(Application.ExeName) + '\Log\HibridoClient';
+      FDataLog.paused := False;
+      try
+        for i := 0 to length(posterDataModules)-1 do
+        begin
+          dmIntegrador := posterDataModules[i].Create(nil);
+          try
+            dmIntegrador.SetEnderecoIntegrador(Self.FEnderecoIntegrador);
+            dmIntegrador.notifier := FNotifier;
+            dmIntegrador.dmPrincipal := dm;
+            dmIntegrador.DataLog := FDataLog;
+            try
+              dmIntegrador.postRecordsToRemote;
+            except
+              on E:Exception do
+              begin
+                FDataLog.log(Format('Erro ao postar registros da classe: %s.  Erro: %s.', [posterDataModules[i].ClassName, e.Message]))
+              end;
+            end;
+          finally
+            FreeAndNil(dmIntegrador);
+          end;
+        end;
+      except
+        on e: Exception do
+        begin
+          FDataLog.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync')
         end;
       end;
-    except
-      on e: Exception do
-        DataLog.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
-    end;
     finally
       dm := nil;
+      FDataLog.Free;
     end;
   end;
+end;
+
+procedure TDataSincronizadorModuloWeb.setEnderecoIntegrador(const Value: string);
+begin
+  Self.FEnderecoIntegrador := Value;
 end;
 
 procedure TDataSincronizadorModuloWeb.threadedGetUpdatedData;

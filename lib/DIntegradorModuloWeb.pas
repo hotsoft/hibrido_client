@@ -7,9 +7,13 @@ uses
   DB, IdMultipartFormData, IdBaseComponent, IdComponent, IdTCPConnection,
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows,
-  ISincronizacaoNotifierUnit, Data.SqlExpr, ABZipper, ABUtils, AbZipTyp, AbArcTyp, AbZipPrc;
+  ISincronizacaoNotifierUnit, Data.SqlExpr, ABZipper, ABUtils, AbZipTyp, AbArcTyp, AbZipPrc, Xml.xmldom,
+  Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc, IBCustomDataSet, IBQuery, ActiveX, DLog;
 
 type
+  EIntegradorException = class(Exception)
+  end;
+
   TNameTranslation = record
     server: string;
     pdv: string;
@@ -52,6 +56,7 @@ type
   private
     FdmPrincipal: IDataPrincipal;
     Fnotifier: ISincronizacaoNotifier;
+    FDataLog: TDataLog;
     procedure SetdmPrincipal(const Value: IDataPrincipal);
     function getdmPrincipal: IDataPrincipal;
 
@@ -59,6 +64,9 @@ type
       params: TStringList;
       tabelaDetalhe: TTabelaDetalhe);
     procedure UpdateRecordDetalhe(pNode: IXMLDomNode; pTabelasDetalhe : array of TTabelaDetalhe);
+    function GetErrorMessage(const aXML: string): string;
+    procedure SetDataLog(const Value: TDataLog);
+    procedure Log(const aLog, aClasse: string);
   protected
     nomeTabela: string;
     nomeSingular: string;
@@ -73,6 +81,7 @@ type
     tabelasDetalhe: array of TTabelaDetalhe;
     offset: integer;
     zippedPost: boolean;
+    FEnderecoIntegrador: string;
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
     function ultimaVersao: integer;
@@ -130,17 +139,20 @@ type
     function saveRecordToRemote(ds: TDataSet; var salvou: boolean): IXMLDomDocument2;
     procedure migrateTableToRemote(where: string = '');
     procedure migrateSingletonTableToRemote;
+    property DataLog: TDataLog read FDataLog write SetDataLog;
     procedure postRecordsToRemote;
     class procedure updateDataSets; virtual;
+    procedure SetEnderecoIntegrador(const aEnderecoIntegrador: string);
   end;
 
   TDataIntegradorModuloWebClass = class of TDataIntegradorModuloWeb;
 
 var
   DataIntegradorModuloWeb: TDataIntegradorModuloWeb;
+
 implementation
 
-uses AguardeFormUn, ComObj, DLog, osErrorHandler;
+uses ComObj;
 
 {$R *.dfm}
 
@@ -261,8 +273,14 @@ begin
     begin
       vNomePlural := pTabelasDetalhe[i].nomePluralDetalhe;
       vNomeSingular := pTabelasDetalhe[i].nomeSingularDetalhe;
-      
-      vNode := pNode.selectSingleNode('./' + dasherize(vNomePlural));      
+
+      if VNomePlural = EmptyStr then
+        raise EIntegradorException.CreateFmt('Tabela detalhe da Classe %s não possui configuração de NomePluralDetalhe',[Self.ClassName]);
+
+      if vNomeSingular = EmptyStr then
+        raise EIntegradorException.CreateFmt('Tabela detalhe da Classe %s não possui configuração de NomeSingularDetalhe',[Self.ClassName]);
+
+      vNode := pNode.selectSingleNode('./' + dasherize(vNomePlural));
       vNodeList := vNode.selectNodes('./' + dasherize(vNomeSingular));
          
       for j := 0 to vNodeList.length - 1 do
@@ -273,7 +291,7 @@ begin
         if duasVias then        
           dmPrincipal.execSQL('UPDATE ' + pTabelasDetalhe[i].nomeTabela + ' SET salvouRetaguarda = ' + 
                           QuotedStr('S') + ', idRemoto = ' + vIdRemoto + 
-                          ' WHERE ' + pTabelasDetalhe[i].nomePK + ' = ' + vPkLocal) ;        
+                          ' WHERE salvouRetaguarda = ''N'' and ' + pTabelasDetalhe[i].nomePK + ' = ' + vPkLocal) ;        
       end;     
       if Length(pTabelasDetalhe[i].tabelasDetalhe) > 0 then
          Self.UpdateRecordDetalhe(vNode, pTabelasDetalhe[i].tabelasDetalhe);
@@ -455,8 +473,34 @@ begin
       params.Add(nome + '=' + valor);
     end;
   end;
-  
-  
+end;
+
+function TDataIntegradorModuloWeb.GetErrorMessage(const aXML: string): string;
+var
+  _node: IXMLNode;
+  _list: IXMLNodeList;
+  _XML: TXMLDocument;
+begin
+  Result := EmptyStr;
+  CoInitialize(nil);
+  _XML := TXMLDocument.Create(Self);
+  try
+    _XML.LoadFromXML(aXML);
+    _list := _XML.ChildNodes;
+    if _list.FindNode('errors') <> nil then
+    begin
+      _list := _list.FindNode('errors').ChildNodes;
+      if _list <> nil  then
+      begin
+        _node := _list.FindNode('error');
+        if _node <> nil then
+          Result := _node.Text;
+      end;
+    end;
+  finally
+    FreeAndNil(_XML);
+    CoUninitialize;
+  end;
 end;
 
 function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet; var salvou: boolean): IXMLDomDocument2;
@@ -466,16 +510,16 @@ var
   multipartParams: TidMultipartFormDataStream;
   xmlContent: string;
   doc: IXMLDomDocument2;
-  i, idRemoto: integer;
-  nome, nomeCampo, valor, txtUpdate: string;
+  idRemoto: integer;
+  txtUpdate: string;
   sucesso: boolean;
   stream: TStringStream;
   zippedParams: TMemoryStream;
   zipper: TAbZipper;
   url, s: string;
-  a,b: cardinal;
+  _Log: string;
 begin
-  DataLog.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
+  Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
   salvou := false;
   http := TIdHTTP.Create(nil);
   params := TStringList.Create;
@@ -526,17 +570,24 @@ begin
           end
           else
           begin
+            http.ConnectTimeout := 30000;
+            http.ReadTimeout := 30000;
             xmlContent := http.Post(url, Params);
           end;
         end;
         sucesso := true;
-        {$IFDEF VER150}
-        doc := CoDOMDocument.Create;
-        {$ELSE}
-        doc := CoDOMDocument60.Create;
-        {$ENDIF}
-        doc.loadXML(xmlContent);
-        result := doc;
+        CoInitialize(nil);
+        try
+          {$IFDEF VER150}
+          doc := CoDOMDocument.Create;
+          {$ELSE}
+          doc := CoDOMDocument60.Create;
+          {$ENDIF}
+          doc.loadXML(xmlContent);
+          result := doc;
+        finally
+          CoUninitialize;
+        end;
         if duasVias or clientToServer then
         begin
           txtUpdate := 'UPDATE ' + nomeTabela + ' SET salvouRetaguarda = ' + QuotedStr('S');
@@ -556,15 +607,21 @@ begin
 
           dmPrincipal.refreshData;
 
-          if Length(TabelasDetalhe) > 0 then          
+          if Length(TabelasDetalhe) > 0 then
              Self.UpdateRecordDetalhe(doc.selectSingleNode(dasherize(nomeSingularSave)), TabelasDetalhe);
         end;
       except
-        on e: Exception do
+        on e: EIdHTTPProtocolException do
         begin
-          DataLog.log('Erro ao tentar salvar registro. Classe: ' + ClassName +
-            '. Erro: ' + e.Message, 'Sync');
-          raise; //Logou, agora manda pra cima
+          if e.ErrorCode = 422 then
+            _Log := Format('Erro ao tentar salvar registro. Classe: %s, Código de erro: %d, Erro: %s.',[ClassName, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage)])
+          else if e.ErrorCode = 500 then
+            _Log := Format('Erro ao tentar salvar registro. Classe: %s, Código de erro: %d. Erro: Erro interno no servidor. ',[ClassName, e.ErrorCode])
+          else
+           _Log :=  Format('Erro ao tentar salvar registro. Classe: %s, Código de erro: %d. Erro: %s.',[ClassName, e.ErrorCode, e.ErrorMessage]);
+
+          Self.log(_Log, 'Sync');
+          raise EIntegradorException.Create(_Log) ; //Logou, agora manda pra cima
         end;
       end;
     end;
@@ -587,12 +644,12 @@ procedure TDataIntegradorModuloWeb.addTabelaDetalheParams(valorPK: integer;
   params: TStringList;
   tabelaDetalhe: TTabelaDetalhe);
 var
-  qry: TSQLDataSet;
+  qry: TDataSet;
   i: integer;
 begin
   qry := dmPrincipal.getQuery;
   try
-    qry.commandText := 'SELECT * FROM ' + tabelaDetalhe.nomeTabela + ' where ' + tabelaDetalhe.nomeFK +
+    TIBQuery(qry).SQL.Text := 'SELECT * FROM ' + tabelaDetalhe.nomeTabela + ' where ' + tabelaDetalhe.nomeFK +
       ' = ' + IntToStr(valorPK) + ' and ((salvouRetaguarda = ''N'') or (salvouRetaguarda is null)' +
                                                                  ' or (salvouRetaguarda = ''''))';
     qry.Open;
@@ -610,54 +667,72 @@ end;
 
 procedure TDataIntegradorModuloWeb.migrateSingletonTableToRemote;
 var
-  qry: TSQLDataSet;
+  qry: TDataSet;
   salvou: boolean;
 begin
   qry := dmPrincipal.getQuery;
   try
-    qry.CommandText := 'SELECT * FROM ' + nomeTabela;
+    TIBQuery(qry).SQL.Text := Trim('SELECT * FROM ' + nomeTabela);
     qry.Open;
     saveRecordToRemote(qry, salvou);
+    qry.Close;
   finally
     FreeAndNil(qry);
   end;
 end;
 
+procedure TDataIntegradorModuloWeb.Log(const aLog, aClasse: string);
+begin
+  if (FDataLog <> nil) then
+    FDataLog.log(aLog, aClasse);
+end;
 
 procedure TDataIntegradorModuloWeb.postRecordsToRemote;
 var
-  qry: TSQLDataSet;
+  qry: TIBQuery;
   salvou: boolean;
+  i, j: Integer;
 begin
-  qry := dmPrincipal.getQuery;
-  dmPrincipal.startTransaction;
-  try 
+  qry := (dmPrincipal.getQuery as TIBQuery);
+  try
     try
-      DataLog.log('Selecionando registros para sincronização. Classe: ' + ClassName, 'Sync');
-      qry.commandText := 'SELECT * from ' + nomeTabela + ' where ((salvouRetaguarda = ' + QuotedStr('N') + ') or (salvouRetaguarda is null)) '
-        + getAdditionalSaveConditions;
+      Self.log('Selecionando registros para sincronização. Classe: ' + ClassName, 'Sync');
+      qry.SQL.Text := Trim( Format('SELECT * from %s where COALESCE(salvouRetaguarda, %s) = %s', [nomeTabela, QuotedStr('N'),QuotedStr('N')])
+                         + getAdditionalSaveConditions);
+
       qry.Open;
+      qry.FetchAll;
+      qry.Last;
+      i := qry.RecordCount;
+      Self.log(IntToStr(i) +' Selecionados: ' + ClassName, 'Sync');
+      j := 0;
       qry.First;
       while not qry.Eof do
       begin
-        saveRecordToRemote(qry, salvou);
-        qry.Next;
+        try
+          dmPrincipal.startTransaction;
+          saveRecordToRemote(qry, salvou);
+          dmPrincipal.commit;
+          qry.Next;
+          inc(j);
+          if ((j mod 10) = 0) then
+            Self.log('Enviando ' + IntToStr(j) +' de ' + IntToStr(i) , 'Sync');
+        except
+          on e: Exception do
+          begin
+            Dec(j);
+            dmPrincipal.rollback;
+            Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
+          end;
+        end;
       end;
-      dmPrincipal.commit;
-      DataLog.log('Commitando post de records para remote. Classe: ' + ClassName, 'Sync')
-    except     
+      Self.log(IntToStr(j) +' Enviados: ' + ClassName, 'Sync');
+    except
       on e: Exception do
-      begin   
-        DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
-        //DataLog.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
-        //HError.clear;
-        //HError.Add('Erro na sincronização Online ' + #10#13 + 
-        //           #10#13 + 'Tabela: ' + nomeTabela + #10#13 + 
-        //           #10#13 + 'Mensagem: ' + e.Message + #10#13 + 
-        //           #10#13 +'Contate Suporte Técnico HotSoft', etWarning);
-        //HError.Check; 
+      begin
+        Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
         raise;
-      end;   
+      end;
     end;
   finally
     FreeAndNil(qry);
@@ -666,10 +741,8 @@ end;
 
 procedure TDataIntegradorModuloWeb.migrateTableToRemote(where: string = '');
 var
-  qry: TSQLDataSet;
+  qry: TDataSet;
   doc: IXMLDomDocument2;
-  list : IXMLDomNodeList;
-  node : IXMLDomNode;
   idRemoto: integer;
   salvou: boolean;
   log: TextFile;
@@ -677,15 +750,13 @@ begin
   offset := dmPrincipal.getSQLIntegerResult('SELECT max(' + nomePKLocal + ' + 1) from ' +
     nomeTabela + ' ');
   qry := dmPrincipal.getQuery;
-  qry.CommandText := 'SELECT * from ' + nomeTabela + ' where ' + nomePKLocal + ' = :' + nomePKLocal;;
+  TIBQuery(qry).SQL.Text := Trim('SELECT * from ' + nomeTabela + ' where ' + nomePKLocal + ' = :' + nomePKLocal);
   dmPrincipal.startTransaction;
   try
-    qry.commandText := 'SELECT * from ' + nomeTabela + ' ' + where + ' order by ' + getOrderBy;
+    qry.Close;
+    TIBQuery(qry).SQL.Text := Trim('SELECT * from ' + nomeTabela + ' ' + where + ' order by ' + getOrderBy);
     qry.Open;
     qry.First;
-    AguardeForm.total := qry.RecordCount;
-    AguardeForm.current := 1;
-    AguardeForm.mostrar('Migrando para a web ' + nomeTabela,0,0,true);
     ReWrite(log);
 
     while not qry.Eof do
@@ -712,20 +783,15 @@ begin
       end;
 
       qry.Next;
-      AguardeForm.current := AguardeForm.current + 1;
     end;
     dmPrincipal.commit;
-    AguardeForm.esconder;
     if not(duasVias) then
     begin
       //Segunda passada. Agora com o espaço liberado e os registros já semi-integrados
       //ao remoto, faltando apenas o ajuste do id
       qry.close;
-      qry.commandText := 'SELECT * from ' + nomeTabela + ' ' + where + ' order by ' + nomePKLocal;
+      TIBQuery(qry).SQL.Text := Trim('SELECT * from ' + nomeTabela + ' ' + where + ' order by ' + nomePKLocal);
       qry.Open;
-      AguardeForm.total := qry.RecordCount;
-      AguardeForm.current := 0;
-      AguardeForm.mostrar('Corrigindo ids. Esta operação poder ser bastante demorada.', 0, 0, true);
       qry.First;
       Writeln(log, '--Iniciando duplicação de volta, sem offset. Offset: ' + inttostr(offset));
       while not qry.Eof do
@@ -735,7 +801,6 @@ begin
         try
           Write(log, 'id: ' + qry.fieldByName(nomePKLocal).asString);
           duplicarRegistroSemOffset(qry);
-          AguardeForm.current := AguardeForm.current + 1;
           WriteLn(log, '... ok');
         except
           WriteLn(log, '... erro');
@@ -774,34 +839,34 @@ end;
 
 procedure TDataIntegradorModuloWeb.duplicarRegistroSemOffset(ds: TDataSet);
 var
-  qry: TSQLDataSet;
+  qry: TDataSet;
   i: integer;
 begin
   qry := dmPrincipal.getQuery;
   try
-    qry.commandText := 'INSERT INTO ' + nomeTabela + '(';
+    TIBQuery(qry).SQL.Text := 'INSERT INTO ' + nomeTabela + '(';
     for i := 0 to ds.fieldCount -1 do
     begin
-      qry.commandText := qry.commandText + ds.Fields[i].FieldName;
+      TIBQuery(qry).SQL.Add( ds.Fields[i].FieldName);
       if i < ds.fieldCount -1 then
-        qry.commandText := qry.commandText + ', ';
+        TIBQuery(qry).SQL.Add( ', ');
     end;
-    qry.commandText := qry.commandText + ') values (';
+    TIBQuery(qry).SQL.Add( ') values (');
     for i := 0 to ds.fieldCount -1 do
     begin
-      qry.commandText := qry.commandText + ':' + ds.Fields[i].FieldName;
+      TIBQuery(qry).SQL.Add( ':' + ds.Fields[i].FieldName);
       if i < ds.fieldCount -1 then
-        qry.commandText := qry.commandText + ', ';
+        TIBQuery(qry).SQL.Add( ', ');
     end;
-    qry.commandText := qry.commandText + ')';
+    TIBQuery(qry).SQL.Add( ')');
     for i := 0 to ds.fieldCount -1 do
     begin
       if uppercase(ds.Fields[i].FieldName) = uppercase(nomePKLocal) then
-        qry.ParamByName(nomePKLocal).Value := ds.Fields[i].AsInteger - offset
+        TIBQuery(qry).ParamByName(nomePKLocal).Value := ds.Fields[i].AsInteger - offset
       else
-        qry.ParamByName(ds.Fields[i].FieldName).Value := ds.Fields[i].Value;
+        TIBQuery(qry).ParamByName(ds.Fields[i].FieldName).Value := ds.Fields[i].Value;
     end;
-    qry.ExecSQL;
+    TIBQuery(qry).ExecSQL;
     redirectRecord(ds.FieldByName(nomePKLocal).AsInteger, ds.FieldByName(nomePKLocal).AsInteger - offset);
     dmPrincipal.commit;
   finally
@@ -1014,10 +1079,20 @@ begin
   translations := TTranslationSet.create(nil);
 end;
 
+procedure TDataIntegradorModuloWeb.SetDataLog(const Value: TDataLog);
+begin
+  FDataLog := Value;
+end;
+
 procedure TDataIntegradorModuloWeb.SetdmPrincipal(
   const Value: IDataPrincipal);
 begin
   FdmPrincipal := Value;
+end;
+
+procedure TDataIntegradorModuloWeb.SetEnderecoIntegrador(const aEnderecoIntegrador: string);
+begin
+  Self.FEnderecoIntegrador := aEnderecoIntegrador;
 end;
 
 function TDataIntegradorModuloWeb.getdmPrincipal: IDataPrincipal;
