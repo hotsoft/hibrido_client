@@ -8,7 +8,7 @@ uses
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows,
   ISincronizacaoNotifierUnit, Data.SqlExpr, ABZipper, ABUtils, AbZipTyp, AbArcTyp, AbZipPrc, Xml.xmldom,
-  Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc, IBCustomDataSet, IBQuery, ActiveX, DLog;
+  Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc, IBCustomDataSet, IBQuery, ActiveX, DLog, DLLInterfaceUn;
 
 type
   EIntegradorException = class(Exception)
@@ -140,7 +140,7 @@ type
     procedure migrateTableToRemote(where: string = '');
     procedure migrateSingletonTableToRemote;
     property DataLog: TDataLog read FDataLog write SetDataLog;
-    procedure postRecordsToRemote;
+    procedure postRecordsToRemote(aDLL: IDLLInterface);
     class procedure updateDataSets; virtual;
     procedure SetEnderecoIntegrador(const aEnderecoIntegrador: string);
   end;
@@ -696,7 +696,7 @@ begin
     FDataLog.log(aLog, aClasse);
 end;
 
-procedure TDataIntegradorModuloWeb.postRecordsToRemote;
+procedure TDataIntegradorModuloWeb.postRecordsToRemote(aDLL: IDLLInterface);
 var
   qry: TIBQuery;
   salvou: boolean;
@@ -716,8 +716,11 @@ begin
       Self.log(IntToStr(i) +' Selecionados: ' + ClassName, 'Sync');
       j := 0;
       qry.First;
-      while not qry.Eof do
+      while (not qry.Eof) do
       begin
+        if (aDLL <> nil) and (aDLL.GetTerminated)  then
+          Break;
+
         try
           dmPrincipal.startTransaction;
           saveRecordToRemote(qry, salvou);

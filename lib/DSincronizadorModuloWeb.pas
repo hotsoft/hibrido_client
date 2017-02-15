@@ -4,7 +4,7 @@ interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-  ISincronizacaoNotifierUnit, DLog;
+  ISincronizacaoNotifierUnit, DLog, DLLInterfaceUn;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
@@ -27,7 +27,7 @@ type
     function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
   public
     getterBlocks: TGetterBlocks;
-    procedure saveAllToRemote;
+    procedure saveAllToRemote(aDLL: IDLLInterface);
     procedure addPosterDataModule(dm: TDataIntegradorModuloWebClass);
     procedure addGetterBlock(getterBlock: TServerToClientBlock);
     procedure ativar;
@@ -102,7 +102,7 @@ begin
   Result := szFileName;
 end;
 
-procedure TDataSincronizadorModuloWeb.saveAllToRemote;
+procedure TDataSincronizadorModuloWeb.saveAllToRemote(aDLL: IDLLInterface);
 var
   i: integer;
   dm: IDataPrincipal;
@@ -120,6 +120,9 @@ begin
       try
         for i := 0 to length(posterDataModules)-1 do
         begin
+          if (aDLL <> nil) and (aDLL.GetTerminated) then
+            Break;
+
           dmIntegrador := posterDataModules[i].Create(nil);
           try
             dmIntegrador.SetEnderecoIntegrador(Self.FEnderecoIntegrador);
@@ -127,7 +130,7 @@ begin
             dmIntegrador.dmPrincipal := dm;
             dmIntegrador.DataLog := FDataLog;
             try
-              dmIntegrador.postRecordsToRemote;
+              dmIntegrador.postRecordsToRemote(aDLL);
             except
               on E:Exception do
               begin
@@ -258,7 +261,7 @@ begin
   try
     CoInitializeEx(nil, 0);
     try
-      sincronizador.saveAllToRemote;
+      sincronizador.saveAllToRemote(nil);
     finally
       CoUninitialize;
     end;
