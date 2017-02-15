@@ -4,7 +4,7 @@ interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-  ISincronizacaoNotifierUnit, DLog, DLLInterfaceUn;
+  ISincronizacaoNotifierUnit, DLog, DLLInterfaceUn, UtilsUnit;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
@@ -139,6 +139,7 @@ begin
             end;
           finally
             FreeAndNil(dmIntegrador);
+            TrimAppMemorySize;
           end;
         end;
       except
