@@ -722,19 +722,18 @@ begin
           dmPrincipal.startTransaction;
           saveRecordToRemote(qry, salvou);
           dmPrincipal.commit;
-          qry.Next;
-          inc(j);
           if ((j mod 10) = 0) then
             Self.log('Enviando ' + IntToStr(j) +' de ' + IntToStr(i) , 'Sync');
           SleepEx(1000,True); //"dorme" 1 segundo para o servidor "respirar"
         except
           on e: Exception do
           begin
-            Dec(j);
             dmPrincipal.rollback;
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
           end;
         end;
+        qry.Next;
+        inc(j);
       end;
       Self.log(IntToStr(j) +' Enviados: ' + ClassName, 'Sync');
     except
