@@ -6,7 +6,7 @@ uses
   SysUtils, ExtCtrls, DBClient, idHTTP, MSXML2_TLB, dialogs, acStrUtils, acNetUtils,
   DB, IdMultipartFormData, IdBaseComponent, IdComponent, IdTCPConnection,
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
-  IDataPrincipalUnit, idURI, System.Classes, Windows,
+  IDataPrincipalUnit, idURI, System.Classes, Windows, UtilsUnit,
   ISincronizacaoNotifierUnit, Data.SqlExpr, ABZipper, ABUtils, AbZipTyp, AbArcTyp, AbZipPrc, Xml.xmldom,
   Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc, IBCustomDataSet, IBQuery, ActiveX, DLog, DLLInterfaceUn;
 
@@ -753,6 +753,7 @@ begin
     end;
   finally
     FreeAndNil(qry);
+    TrimAppMemorySize;
   end;
 end;
 
