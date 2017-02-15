@@ -20,6 +20,7 @@ type
     FEnderecoIntegrador : string;
     FDataLog: TDataLog;
     procedure SetonStepGetters(const Value: TStepGettersEvent);
+    function GetDLLModuleName: string;
   protected
     posterDataModules: array of TDataIntegradorModuloWebClass;
     Fnotifier: ISincronizacaoNotifier;
@@ -92,6 +93,15 @@ begin
   posterDataModules[size] := dm;
 end;
 
+function TDataSincronizadorModuloWeb.GetDLLModuleName: string;
+var
+  szFileName: array[0..MAX_PATH] of Char;
+begin
+  FillChar(szFileName, SizeOf(szFileName), #0);
+  GetModuleFileName(hInstance, szFileName, MAX_PATH);
+  Result := szFileName;
+end;
+
 procedure TDataSincronizadorModuloWeb.saveAllToRemote;
 var
   i: integer;
@@ -104,7 +114,8 @@ begin
   begin
     FDataLog := TDataLog.Create(Self);
     try
-      FDataLog.baseDir := ExtractFileDir(Application.ExeName) + '\Log\HibridoClient';
+      FDataLog.logPrefix := StringReplace(ExtractFileName(Self.GetDLLModuleName),'.dll','',[rfReplaceAll]) + '_';
+      FDataLog.baseDir := ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\';
       FDataLog.paused := False;
       try
         for i := 0 to length(posterDataModules)-1 do

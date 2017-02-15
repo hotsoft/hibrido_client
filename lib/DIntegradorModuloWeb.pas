@@ -512,7 +512,7 @@ var
   doc: IXMLDomDocument2;
   idRemoto: integer;
   txtUpdate: string;
-  sucesso: boolean;
+  _Retry: integer;
   stream: TStringStream;
   zippedParams: TMemoryStream;
   zipper: TAbZipper;
@@ -529,8 +529,8 @@ begin
     addTranslatedParams(ds, params, translations);
     addDetails(ds, params);
     addMoreParams(ds, params);
-    sucesso := false;
-    while not sucesso do
+    _Retry := 1;
+    while (_Retry<=3) do
     begin
       try
         if useMultipartParams then
@@ -583,7 +583,6 @@ begin
             end;
           end;
         end;
-        sucesso := true;
         CoInitialize(nil);
         try
           {$IFDEF VER150}
@@ -618,9 +617,11 @@ begin
           if Length(TabelasDetalhe) > 0 then
              Self.UpdateRecordDetalhe(doc.selectSingleNode(dasherize(nomeSingularSave)), TabelasDetalhe);
         end;
+        _Retry := 4;
       except
         on e: EIdHTTPProtocolException do
         begin
+          inc(_Retry);
           if e.ErrorCode = 422 then
             _Log := Format('Erro ao tentar salvar registro. Classe: %s, Código de erro: %d, Erro: %s.',[ClassName, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage)])
           else if e.ErrorCode = 500 then
@@ -633,7 +634,7 @@ begin
         end;
       end;
     end;
-    salvou := sucesso;
+    salvou := _Retry > 3;
   finally
     FreeAndNil(http);
     FreeAndNil(params);
