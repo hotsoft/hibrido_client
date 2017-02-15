@@ -524,7 +524,6 @@ begin
   salvou := false;
   http := TIdHTTP.Create(nil);
   params := TStringList.Create;
-  multiPartParams := TIdMultiPartFormDataStream.Create;
   try
     addTranslatedParams(ds, params, translations);
     addDetails(ds, params);
@@ -535,10 +534,15 @@ begin
       try
         if useMultipartParams then
         begin
-          stream := TStringStream.Create('');
-          prepareMultipartParams(ds, params, multipartParams);
-          http.Post(getRequestUrlForAction(true), multipartParams, stream);
-          xmlContent := stream.ToString;
+          multiPartParams := TIdMultiPartFormDataStream.Create;
+          try
+            stream := TStringStream.Create('');
+            prepareMultipartParams(ds, params, multipartParams);
+            http.Post(getRequestUrlForAction(true), multipartParams, stream);
+            xmlContent := stream.ToString;
+          finally
+            MultiPartParams.Free;
+          end;
         end
         else
         begin
@@ -824,6 +828,7 @@ begin
   finally
     dmPrincipal.commit;
     FreeAndNil(qry);
+    CloseFile(log);
   end;
 end;
 
