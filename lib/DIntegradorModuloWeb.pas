@@ -143,6 +143,7 @@ type
     procedure postRecordsToRemote(aDLL: IDLLInterface);
     class procedure updateDataSets; virtual;
     procedure SetEnderecoIntegrador(const aEnderecoIntegrador: string);
+    destructor Destroy; override;
   end;
 
   TDataIntegradorModuloWebClass = class of TDataIntegradorModuloWeb;
@@ -964,6 +965,16 @@ begin
   zippedPost := false;
 end;
 
+
+destructor TDataIntegradorModuloWeb.Destroy;
+var
+  _i: integer;
+begin
+  for _i := Low(Self.tabelasDetalhe) to High(Self.tabelasDetalhe) do
+    Self.tabelasDetalhe[_i].Free;
+
+  inherited;
+end;
 
 function TDataIntegradorModuloWeb.translateValueToServer(translation: TNameTranslation;
   fieldName: string; field: TField; nestedAttribute: string = ''; fkName: string = ''): string;
