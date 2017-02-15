@@ -518,6 +518,7 @@ var
   zipper: TAbZipper;
   url, s: string;
   _Log: string;
+  _Response: TStringStream;
 begin
   Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
   salvou := false;
@@ -570,9 +571,16 @@ begin
           end
           else
           begin
-            http.ConnectTimeout := 30000;
-            http.ReadTimeout := 30000;
-            xmlContent := http.Post(url, Params);
+            _Response := TStringStream.Create;
+            try
+              http.ConnectTimeout := 30000;
+              http.ReadTimeout := 30000;
+              //Primeiro, tenta dar um "Get" no endereço, para saber se pode enviar dados para o servidor. (como medida de proteção)
+              http.Get(StringReplace(Self.FEnderecoIntegrador, '/Api/', '/stockfin', [rfReplaceAll]), _Response);
+              xmlContent := http.Post(url, Params);
+            finally
+              _Response.Free;
+            end;
           end;
         end;
         sucesso := true;
@@ -717,6 +725,7 @@ begin
           inc(j);
           if ((j mod 10) = 0) then
             Self.log('Enviando ' + IntToStr(j) +' de ' + IntToStr(i) , 'Sync');
+          SleepEx(1000,True); //"dorme" 1 segundo para o servidor "respirar"
         except
           on e: Exception do
           begin
