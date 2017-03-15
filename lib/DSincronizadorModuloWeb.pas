@@ -107,6 +107,7 @@ var
   i: integer;
   dm: IDataPrincipal;
   dmIntegrador: TDataIntegradorModuloWeb;
+  _logPrefix: string;
 begin
   if gravandoVenda then exit;
   dm := getNewDataPrincipal;
@@ -114,7 +115,10 @@ begin
   begin
     FDataLog := TDataLog.Create(Self);
     try
-      FDataLog.logPrefix := StringReplace(ExtractFileName(Self.GetDLLModuleName),'.dll','',[rfReplaceAll]) + '_';
+      _logPrefix := StringReplace(ExtractFileName(Self.GetDLLModuleName),'.dll','',[rfReplaceAll]);
+      _logPrefix := _logPrefix + '_'+inttostr(hInstance)+'_';
+
+      FDataLog.logPrefix :=
       FDataLog.baseDir := ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\';
       FDataLog.paused := False;
       try
