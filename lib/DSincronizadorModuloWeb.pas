@@ -118,7 +118,7 @@ begin
       _logPrefix := StringReplace(ExtractFileName(Self.GetDLLModuleName),'.dll','',[rfReplaceAll]);
       _logPrefix := _logPrefix + '_'+inttostr(hInstance)+'_';
 
-      FDataLog.logPrefix :=
+      FDataLog.logPrefix :=_logPrefix;
       FDataLog.baseDir := ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\';
       FDataLog.paused := False;
       try
