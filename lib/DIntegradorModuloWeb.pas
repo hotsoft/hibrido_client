@@ -8,7 +8,8 @@ uses
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows, UtilsUnit,
   ISincronizacaoNotifierUnit, Data.SqlExpr, ABZipper, ABUtils, AbZipTyp, AbArcTyp, AbZipPrc, Xml.xmldom,
-  Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc, IBCustomDataSet, IBQuery, ActiveX, DLog, DLLInterfaceUn;
+  Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc,ActiveX, DLog, DLLInterfaceUn,
+  {$IFDEF VER250}IBCustomDataSet, IBQuery{$ENDIF}{$IFDEF VER320}IBX.IBCustomDataSet, IBX.IBQuery {$ENDIF};
 
 type
   EIntegradorException = class(Exception)
