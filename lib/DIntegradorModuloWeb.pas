@@ -7,7 +7,7 @@ uses
   DB, IdMultipartFormData, IdBaseComponent, IdComponent, IdTCPConnection,
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows, UtilsUnit,
-  ISincronizacaoNotifierUnit, Data.SqlExpr, ABZipper, ABUtils, AbZipTyp, AbArcTyp, AbZipPrc, Xml.xmldom,
+  ISincronizacaoNotifierUnit, Data.SqlExpr, System.ZLib, System.IOUtils, Xml.xmldom,
   Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc,ActiveX, DLog, DLLInterfaceUn,
   {$IFDEF VER250}IBCustomDataSet, IBQuery{$ENDIF}{$IFDEF VER320}IBX.IBCustomDataSet, IBX.IBQuery {$ENDIF};
 
@@ -515,9 +515,9 @@ var
   idRemoto: integer;
   txtUpdate: string;
   _Retry: integer;
-  stream: TStringStream;
+  _stream: TStringStream;
   zippedParams: TMemoryStream;
-  zipper: TAbZipper;
+  zipper: TZCompressionStream;
   url, s: string;
   _Log: string;
   _Response: TStringStream;
@@ -538,10 +538,10 @@ begin
         begin
           multiPartParams := TIdMultiPartFormDataStream.Create;
           try
-            stream := TStringStream.Create('');
+            _stream := TStringStream.Create('');
             prepareMultipartParams(ds, params, multipartParams);
-            http.Post(getRequestUrlForAction(true), multipartParams, stream);
-            xmlContent := stream.ToString;
+            http.Post(getRequestUrlForAction(true), multipartParams, _stream);
+            xmlContent := _stream.ToString;
           finally
             MultiPartParams.Free;
           end;
@@ -558,21 +558,21 @@ begin
             params.Delimiter := '&';
             params.QuoteChar := '&';
             s := params.DelimitedText;
-            stream := TStringStream.Create(utf8Encode(s));
+            //_stream é o input com a string "s" a ser comprimida
+            _stream := TStringStream.Create(utf8Encode(s));
             try
+              //este será o stream de output, comprimido
               zippedParams := TMemoryStream.Create;
-              zipper := TAbZipper.Create(nil);
-              zipper.ArchiveType := atGzip;
-              zipper.ForceType := true;
-              zipper.Stream := zippedParams;
-              zipper.AddFromStream('', stream);
+              zipper := TZCompressionStream.Create(zippedParams);
+              _stream.Position := 0;
+              //zippedParams é o stream de destino, no qual receberá o stream "_stream"
+              zipper.CopyFrom(_stream, _stream.Size);
+
               http.Request.contentEncoding := 'gzip';
               xmlContent := http.Post(url, zippedParams);
             finally
-              if zipper <> nil then
-                freeAndNil(zipper);
-              if zippedParams <> nil then
-                freeAndNil(zippedParams);
+              FreeAndNil(zippedParams);
+              FreeAndNil(zipper);
             end;
           end
           else
