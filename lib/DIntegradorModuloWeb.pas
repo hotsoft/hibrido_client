@@ -7,7 +7,7 @@ uses
   DB, IdMultipartFormData, IdBaseComponent, IdComponent, IdTCPConnection,
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows, UtilsUnit,
-  ISincronizacaoNotifierUnit, Data.SqlExpr, System.ZLib, System.IOUtils, Xml.xmldom,
+  ISincronizacaoNotifierUnit, Data.SqlExpr, Xml.xmldom,
   Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc,ActiveX, DLog, DLLInterfaceUn,
   {$IFDEF VER250}IBCustomDataSet, IBQuery{$ENDIF}{$IFDEF VER320}IBX.IBCustomDataSet, IBX.IBQuery {$ENDIF};
 
@@ -81,7 +81,6 @@ type
     tabelasDependentes: array of TTabelaDependente;
     tabelasDetalhe: array of TTabelaDetalhe;
     offset: integer;
-    zippedPost: boolean;
     FEnderecoIntegrador: string;
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
@@ -268,7 +267,7 @@ var
    vNode : IXMLDomNode;
    vNodeList, List: IXMLDOMNodeList;
    vIdRemoto, vPkLocal : String;   
-   vNomePlural, vNomeSingular, no : string;
+   vNomePlural, vNomeSingular: string;
 begin                                                   
   try
     for i := low(pTabelasDetalhe) to high(pTabelasDetalhe) do
@@ -516,9 +515,7 @@ var
   txtUpdate: string;
   _Retry: integer;
   _stream: TStringStream;
-  zippedParams: TMemoryStream;
-  zipper: TZCompressionStream;
-  url, s: string;
+  url: string;
   _Log: string;
   _Response: TStringStream;
 begin
@@ -549,44 +546,15 @@ begin
         else
         begin
           url := getRequestUrlForAction(true);
-          {
-            A implementação do zippedPost ainda não está pronta. Ela deve ser mais bem testada em vários casos
-            e precisa ser garantido que o post está de fato indo zipado.
-          }
-          if zippedPost then
-          begin
-            params.Delimiter := '&';
-            params.QuoteChar := '&';
-            s := params.DelimitedText;
-            //_stream é o input com a string "s" a ser comprimida
-            _stream := TStringStream.Create(utf8Encode(s));
-            try
-              //este será o stream de output, comprimido
-              zippedParams := TMemoryStream.Create;
-              zipper := TZCompressionStream.Create(zippedParams);
-              _stream.Position := 0;
-              //zippedParams é o stream de destino, no qual receberá o stream "_stream"
-              zipper.CopyFrom(_stream, _stream.Size);
-
-              http.Request.contentEncoding := 'gzip';
-              xmlContent := http.Post(url, zippedParams);
-            finally
-              FreeAndNil(zippedParams);
-              FreeAndNil(zipper);
-            end;
-          end
-          else
-          begin
-            _Response := TStringStream.Create;
-            try
-              http.ConnectTimeout := 30000;
-              http.ReadTimeout := 30000;
-              //Primeiro, tenta dar um "Get" no endereço, para saber se pode enviar dados para o servidor. (como medida de proteção)
-              http.Get(StringReplace(Self.FEnderecoIntegrador, '/Api/', '/stockfin', [rfReplaceAll]), _Response);
-              xmlContent := http.Post(url, Params);
-            finally
-              _Response.Free;
-            end;
+          _Response := TStringStream.Create;
+          try
+            http.ConnectTimeout := 30000;
+            http.ReadTimeout := 30000;
+            //Primeiro, tenta dar um "Get" no endereço, para saber se pode enviar dados para o servidor. (como medida de proteção)
+            http.Get(StringReplace(Self.FEnderecoIntegrador, '/Api/', '/stockfin', [rfReplaceAll]), _Response);
+            xmlContent := http.Post(url, Params);
+          finally
+            _Response.Free;
           end;
         end;
         CoInitialize(nil);
@@ -964,7 +932,6 @@ begin
   SetLength(tabelasDependentes, 0);
   nomeGenerator := '';
   useMultipartParams := false;
-  zippedPost := false;
 end;
 
 
