@@ -7,8 +7,9 @@ uses
   DB, IdMultipartFormData, IdBaseComponent, IdComponent, IdTCPConnection,
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows, UtilsUnit,
-  ISincronizacaoNotifierUnit, Data.SqlExpr, ABZipper, ABUtils, AbZipTyp, AbArcTyp, AbZipPrc, Xml.xmldom,
-  Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc, IBCustomDataSet, IBQuery, ActiveX, DLog, DLLInterfaceUn;
+  ISincronizacaoNotifierUnit, Data.SqlExpr, Xml.xmldom,
+  Xml.XMLIntf, Xml.Win.msxmldom, Xml.XMLDoc,ActiveX, DLog, DLLInterfaceUn,
+  {$IFDEF VER250}IBCustomDataSet, IBQuery{$ENDIF}{$IFDEF VER320}IBX.IBCustomDataSet, IBX.IBQuery {$ENDIF};
 
 type
   EIntegradorException = class(Exception)
@@ -80,7 +81,6 @@ type
     tabelasDependentes: array of TTabelaDependente;
     tabelasDetalhe: array of TTabelaDetalhe;
     offset: integer;
-    zippedPost: boolean;
     FEnderecoIntegrador: string;
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
@@ -267,7 +267,7 @@ var
    vNode : IXMLDomNode;
    vNodeList, List: IXMLDOMNodeList;
    vIdRemoto, vPkLocal : String;   
-   vNomePlural, vNomeSingular, no : string;
+   vNomePlural, vNomeSingular: string;
 begin                                                   
   try
     for i := low(pTabelasDetalhe) to high(pTabelasDetalhe) do
@@ -514,10 +514,8 @@ var
   idRemoto: integer;
   txtUpdate: string;
   _Retry: integer;
-  stream: TStringStream;
-  zippedParams: TMemoryStream;
-  zipper: TAbZipper;
-  url, s: string;
+  _stream: TStringStream;
+  url: string;
   _Log: string;
   _Response: TStringStream;
 begin
@@ -537,10 +535,10 @@ begin
         begin
           multiPartParams := TIdMultiPartFormDataStream.Create;
           try
-            stream := TStringStream.Create('');
+            _stream := TStringStream.Create('');
             prepareMultipartParams(ds, params, multipartParams);
-            http.Post(getRequestUrlForAction(true), multipartParams, stream);
-            xmlContent := stream.ToString;
+            http.Post(getRequestUrlForAction(true), multipartParams, _stream);
+            xmlContent := _stream.ToString;
           finally
             MultiPartParams.Free;
           end;
@@ -548,44 +546,15 @@ begin
         else
         begin
           url := getRequestUrlForAction(true);
-          {
-            A implementação do zippedPost ainda não está pronta. Ela deve ser mais bem testada em vários casos
-            e precisa ser garantido que o post está de fato indo zipado.
-          }
-          if zippedPost then
-          begin
-            params.Delimiter := '&';
-            params.QuoteChar := '&';
-            s := params.DelimitedText;
-            stream := TStringStream.Create(utf8Encode(s));
-            try
-              zippedParams := TMemoryStream.Create;
-              zipper := TAbZipper.Create(nil);
-              zipper.ArchiveType := atGzip;
-              zipper.ForceType := true;
-              zipper.Stream := zippedParams;
-              zipper.AddFromStream('', stream);
-              http.Request.contentEncoding := 'gzip';
-              xmlContent := http.Post(url, zippedParams);
-            finally
-              if zipper <> nil then
-                freeAndNil(zipper);
-              if zippedParams <> nil then
-                freeAndNil(zippedParams);
-            end;
-          end
-          else
-          begin
-            _Response := TStringStream.Create;
-            try
-              http.ConnectTimeout := 30000;
-              http.ReadTimeout := 30000;
-              //Primeiro, tenta dar um "Get" no endereço, para saber se pode enviar dados para o servidor. (como medida de proteção)
-              http.Get(StringReplace(Self.FEnderecoIntegrador, '/Api/', '/stockfin', [rfReplaceAll]), _Response);
-              xmlContent := http.Post(url, Params);
-            finally
-              _Response.Free;
-            end;
+          _Response := TStringStream.Create;
+          try
+            http.ConnectTimeout := 30000;
+            http.ReadTimeout := 30000;
+            //Primeiro, tenta dar um "Get" no endereço, para saber se pode enviar dados para o servidor. (como medida de proteção)
+            http.Get(StringReplace(Self.FEnderecoIntegrador, '/Api/', '/stockfin', [rfReplaceAll]), _Response);
+            xmlContent := http.Post(url, Params);
+          finally
+            _Response.Free;
           end;
         end;
         CoInitialize(nil);
@@ -915,8 +884,8 @@ end;
 constructor TTranslationSet.create(owner: TComponent);
 begin
   SetLength(translations, 0);
-  add('version', 'versao');
-  add('active', 'ativo');
+  //add('version', 'versao');
+  //add('active', 'ativo');
 end;
 
 function TTranslationSet.get(index: integer): TNameTranslation;
@@ -963,7 +932,6 @@ begin
   SetLength(tabelasDependentes, 0);
   nomeGenerator := '';
   useMultipartParams := false;
-  zippedPost := false;
 end;
 
 
