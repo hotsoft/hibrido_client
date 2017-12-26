@@ -119,6 +119,9 @@ begin
       _logPrefix := _logPrefix + '_'+inttostr(hInstance)+'_';
 
       FDataLog.logPrefix :=_logPrefix;
+      if not DirectoryExists(ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\') then
+        forcedirectories(ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\');
+
       FDataLog.baseDir := ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\';
       FDataLog.paused := False;
       try
