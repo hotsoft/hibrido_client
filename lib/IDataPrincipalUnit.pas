@@ -2,10 +2,9 @@ unit IDataPrincipalUnit;
 
 interface
 
-uses DB, Classes;
+uses Data.SqlExpr, Classes;
 
 type
-
 
 IDataPrincipal = interface
   procedure startTransaction; overload;                     //Inicia uma transação no banco de dados
@@ -21,16 +20,15 @@ IDataPrincipal = interface
   function getSQLIntegerResult(sqlText: string): integer;   //retorna um resultado inteiro
                                                             //de uma query. Útil em queries de count e max
 
-  procedure execSQL(sqlText: string; retries: integer = 0);                       //executa um comando SQL sem resultado
+  procedure execSQL(sqlText: string; retries: integer = 0); //executa um comando SQL sem resultado
 
   procedure refreshData;                                    //faz refresh dos dados do client
                                                             //em firebird por exemplo é um Commit Work
 
-  function getQuery: TDataSet;                              //retorna um TSQLDataSet conectado na base
+  function getQuery: TSQLDataSet;                              //retorna um TSQLDataSet conectado na base
   function sincronizar: boolean;                            //indica se deve-se ou não sincronizar
                                                             //com a parte web. Útil quando queremos ter
                                                             //clientes que sincronizam e outros que não sincronizam
-  procedure SetConnectionParams(aConnectionParams: TStringList);
 end;
 
 implementation

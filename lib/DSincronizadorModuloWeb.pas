@@ -4,7 +4,7 @@ interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-  ISincronizacaoNotifierUnit, DLog, DLLInterfaceUn, UtilsUnit;
+    ISincronizacaoNotifierUnit, IdHTTP;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
@@ -17,60 +17,71 @@ type
   private
     atualizando: boolean;
     FonStepGetters: TStepGettersEvent;
-    FEnderecoIntegrador : string;
-    FDataLog: TDataLog;
     procedure SetonStepGetters(const Value: TStepGettersEvent);
-    function GetDLLModuleName: string;
+    function ShouldContinue: boolean;
   protected
-    posterDataModules: array of TDataIntegradorModuloWebClass;
     Fnotifier: ISincronizacaoNotifier;
-    function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
+    FThreadControl: IThreadControl;
+    FCustomParams: ICustomParams;
+    FDataLog: ILog;
   public
+    posterDataModules: array of TDataIntegradorModuloWebClass;
     getterBlocks: TGetterBlocks;
-    procedure saveAllToRemote(aDLL: IDLLInterface);
+    function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
     procedure addPosterDataModule(dm: TDataIntegradorModuloWebClass);
     procedure addGetterBlock(getterBlock: TServerToClientBlock);
     procedure ativar;
     procedure desativar;
     procedure getUpdatedData;
     procedure threadedGetUpdatedData;
-    procedure threadedSaveAllToRemote;
+    procedure saveAllToRemote(wait: boolean = false); virtual;
     property notifier: ISincronizacaoNotifier read FNotifier write FNotifier;
-    procedure setEnderecoIntegrador(const Value: string);
+    property threadControl: IThreadControl read FthreadControl write FthreadControl;
+    property CustomParams: ICustomParams read FCustomParams write FCustomParams;
+    property Datalog: ILog read FDataLog write FDataLog;
   published
     property onStepGetters: TStepGettersEvent read FonStepGetters write SetonStepGetters;
   end;
 
-  TRunnerThreadGetters = class(TThread)
+  TCustomRunnerThread = class(TThread)
   private
-    Fnotifier: ISincronizacaoNotifier;
-    Fsincronizador: TDataSincronizadorModuloWeb;
     procedure Setnotifier(const Value: ISincronizacaoNotifier);
     procedure Setsincronizador(const Value: TDataSincronizadorModuloWeb);
+  protected
+    Fnotifier: ISincronizacaoNotifier;
+    FthreadControl: IThreadControl;
+    Fsincronizador: TDataSincronizadorModuloWeb;
+    FCustomParams: ICustomParams;
+    FDataLog: ILog;
+    function ShouldContinue: boolean;
+    procedure Log(const aLog, aClasse: string);
   public
     property notifier: ISincronizacaoNotifier read Fnotifier write Setnotifier;
     property sincronizador: TDataSincronizadorModuloWeb read Fsincronizador write Setsincronizador;
+    property threadControl: IThreadControl read FthreadControl write FthreadControl;
+    property CustomParams: ICustomParams read FCustomParams write FCustomParams;
+    property DataLog: ILog read FDataLog write FDataLog;
+  end;
+
+  TRunnerThreadGetters = class(TCustomRunnerThread)
+  private
+    procedure setMainFormGettingFalse;
+    procedure finishGettingProcess;
   protected
     procedure setMainFormGettingTrue;
-    procedure finishGettingProcess;
+  public
     procedure Execute; override;
   end;
 
-  TRunnerThreadPuters = class(TThread)
+  TRunnerThreadPuters = class(TCustomRunnerThread)
   private
-    Fnotifier: ISincronizacaoNotifier;
-    Fsincronizador: TDataSincronizadorModuloWeb;
-    procedure Setnotifier(const Value: ISincronizacaoNotifier);
-    procedure Setsincronizador(const Value: TDataSincronizadorModuloWeb);
-  public
-    property notifier: ISincronizacaoNotifier read Fnotifier write Setnotifier;
-    property sincronizador: TDataSincronizadorModuloWeb read Fsincronizador write Setsincronizador;
+    procedure PopulateTranslatedTableNames(aTranslatedTableName: TStringDictionary);
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
+  public
     procedure Execute; override;
   end;
-  
 
 
 var
@@ -79,7 +90,7 @@ var
 
 implementation
 
-uses ComObj, Forms;
+uses ComObj, acNetUtils;
 
 {$R *.dfm}
 
@@ -93,88 +104,24 @@ begin
   posterDataModules[size] := dm;
 end;
 
-function TDataSincronizadorModuloWeb.GetDLLModuleName: string;
-var
-  szFileName: array[0..MAX_PATH] of Char;
-begin
-  FillChar(szFileName, SizeOf(szFileName), #0);
-  GetModuleFileName(hInstance, szFileName, MAX_PATH);
-  Result := szFileName;
-end;
-
-procedure TDataSincronizadorModuloWeb.saveAllToRemote(aDLL: IDLLInterface);
-var
-  i: integer;
-  dm: IDataPrincipal;
-  dmIntegrador: TDataIntegradorModuloWeb;
-  _logPrefix: string;
-begin
-  if gravandoVenda then exit;
-  dm := getNewDataPrincipal;
-  if dm.sincronizar then
-  begin
-    FDataLog := TDataLog.Create(Self);
-    try
-      _logPrefix := StringReplace(ExtractFileName(Self.GetDLLModuleName),'.dll','',[rfReplaceAll]);
-      _logPrefix := _logPrefix + '_'+inttostr(hInstance)+'_';
-
-      FDataLog.logPrefix :=_logPrefix;
-      if not DirectoryExists(ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\') then
-        forcedirectories(ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\');
-
-      FDataLog.baseDir := ExtractFileDir(Application.ExeName) + '\Log\HibridoClient\';
-      FDataLog.paused := False;
-      try
-        for i := 0 to length(posterDataModules)-1 do
-        begin
-          if (aDLL <> nil) and (aDLL.GetTerminated) then
-            Break;
-
-          dmIntegrador := posterDataModules[i].Create(nil);
-          try
-            dmIntegrador.SetEnderecoIntegrador(Self.FEnderecoIntegrador);
-            dmIntegrador.notifier := FNotifier;
-            dmIntegrador.dmPrincipal := dm;
-            dmIntegrador.DataLog := FDataLog;
-            try
-              dmIntegrador.postRecordsToRemote(aDLL);
-            except
-              on E:Exception do
-              begin
-                FDataLog.log(Format('Erro ao postar registros da classe: %s.  Erro: %s.', [posterDataModules[i].ClassName, e.Message]))
-              end;
-            end;
-          finally
-            FreeAndNil(dmIntegrador);
-            TrimAppMemorySize;
-          end;
-        end;
-      except
-        on e: Exception do
-        begin
-          FDataLog.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync')
-        end;
-      end;
-    finally
-      dm := nil;
-      FDataLog.Free;
-    end;
-  end;
-end;
-
-procedure TDataSincronizadorModuloWeb.setEnderecoIntegrador(const Value: string);
-begin
-  Self.FEnderecoIntegrador := Value;
-end;
-
 procedure TDataSincronizadorModuloWeb.threadedGetUpdatedData;
 var
   t: TRunnerThreadGetters;
 begin
   t := TRunnerThreadGetters.Create(true);
   t.sincronizador := self;
+  t.threadControl := self.threadControl;
+  t.CustomParams := self.CustomParams;
+  t.DataLog := Self.Datalog;
   t.notifier := notifier;
-  t.Resume;
+  t.Start;
+end;
+
+function TDataSincronizadorModuloWeb.ShouldContinue: boolean;
+begin
+  Result := true;
+  if Self.FThreadControl <> nil then
+    result := Self.FThreadControl.getShouldContinue;
 end;
 
 procedure TDataSincronizadorModuloWeb.getUpdatedData;
@@ -182,32 +129,62 @@ var
   i, j: integer;
   block: TServerToClientBlock;
   dm: IDataPrincipal;
+  http: TidHTTP;
+  dimw: TDataIntegradorModuloWeb;
+  dimwName: string;
 begin
-  dm := getNewDataPrincipal;
+  CoInitializeEx(nil, 0);
   try
-    for i := 0 to length(getterBlocks) - 1 do
-    begin
-      block := getterBlocks[i];
-      dm.startTransaction;
-      try
-        for j := 0 to length(block) - 1 do
-        begin
-          with block[j].Create(nil) do
+    dm := getNewDataPrincipal;
+    http := getHTTPInstance;
+    try
+      for i := 0 to length(getterBlocks) - 1 do
+      begin
+        if not Self.ShouldContinue then
+          Break;
+
+        block := getterBlocks[i];
+        dm.startTransaction;
+        try
+          for j := 0 to length(block) - 1 do
           begin
-            notifier := self.notifier;
-            dmPrincipal := dm;
-            getDadosAtualizados;
-            if Assigned(onStepGetters) then onStepGetters(block[j].className, i+1, length(getterBlocks));
-            free;
+            if not Self.ShouldContinue then
+              Break;
+
+            dimw := block[j].Create(nil);
+            try
+              dimwName := dimw.getHumanReadableName;
+              dimw.notifier := Self.Fnotifier;
+              dimw.dmPrincipal := dm;
+              dimw.threadcontrol := Self.FThreadControl;
+              dimw.CustomParams := Self.FCustomParams;
+              dimw.DataLog := Self.FDataLog;
+              dimw.getDadosAtualizados(http);
+              if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i+1, length(getterBlocks));
+            finally
+              dimw.free;
+            end;
+          end;
+          dm.commit;
+        except
+          on E: Exception do
+          begin
+            dm.rollback;
+            if assigned (self.FDataLog) then
+            begin
+              SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
+              Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
+              SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+            end;
           end;
         end;
-        dm.commit;
-      except
-        dm.rollback;
       end;
+    finally
+      dm := nil;
+      FreeAndNil(http);
     end;
   finally
-    dm := nil;
+    CoUninitialize;
   end;
 end;
 
@@ -241,60 +218,29 @@ begin
   getterBlocks[size] := getterBlock;
 end;
 
-{ TRunnerThread }
-
-procedure TRunnerThreadGetters.Execute;
-begin
-  inherited;
-  FreeOnTerminate := True;
-  Synchronize(setMainFormGettingTrue);
-  CoInitializeEx(nil, 0);
-  try
-    sincronizador.getUpdatedData;
-  finally
-    CoUninitialize;
-    Synchronize(finishGettingProcess);
-  end;
-end;
-
-{ TRunnerThreadPuters }
-
-procedure TRunnerThreadPuters.Execute;
-begin
-  inherited;
-  FreeOnTerminate := True;
-  if salvandoRetaguarda or gravandoVenda then exit;
-  Synchronize(setMainFormPuttingTrue);
-  salvandoRetaguarda := true;
-  try
-    CoInitializeEx(nil, 0);
-    try
-      sincronizador.saveAllToRemote(nil);
-    finally
-      CoUninitialize;
-    end;
-  finally
-    salvandoRetaguarda := false;
-    if notifier <> nil then
-      notifier.unflagSalvandoDadosServidor;
-    Synchronize(finishPuttingProcess);
-  end;
-end;
-
 procedure TDataSincronizadorModuloWeb.sincronizaRetaguardaTimerTimer(
   Sender: TObject);
 begin
-  threadedSaveAllToRemote;
+  SaveAllToRemote;
 end;
 
-procedure TDataSincronizadorModuloWeb.threadedSaveAllToRemote;
+procedure TDataSincronizadorModuloWeb.SaveAllToRemote(wait: boolean = false);
 var
   t: TRunnerThreadPuters;
 begin
   t := TRunnerThreadPuters.Create(true);
   t.sincronizador := self;
   t.notifier := notifier;
-  t.Resume;
+  t.threadControl := Self.FThreadControl;
+  t.CustomParams := Self.FCustomParams;
+  t.FreeOnTerminate := not wait;
+  t.DataLog := Self.FDataLog;
+  t.Start;
+  if wait then
+  begin
+    t.WaitFor;
+    FreeAndNil(t);
+  end;
 end;
 
 procedure TDataSincronizadorModuloWeb.SetonStepGetters(
@@ -302,6 +248,8 @@ procedure TDataSincronizadorModuloWeb.SetonStepGetters(
 begin
   FonStepGetters := Value;
 end;
+
+{TRunnerThreadGetters}
 
 procedure TRunnerThreadGetters.finishGettingProcess;
 var
@@ -317,7 +265,13 @@ begin
       block[j].updateDataSets;
     end;
   end;
-  notifier.unflagBuscandoDadosServidor;
+  setMainFormGettingFalse;
+end;
+
+procedure TRunnerThreadGetters.setMainFormGettingFalse;
+begin
+  if notifier <> nil then
+    notifier.unflagBuscandoDadosServidor;
 end;
 
 procedure TRunnerThreadGetters.setMainFormGettingTrue;
@@ -326,38 +280,151 @@ begin
     notifier.flagBuscandoDadosServidor;
 end;
 
+procedure TRunnerThreadGetters.Execute;
+begin
+  inherited;
+  FreeOnTerminate := True;
+  if Self.Fnotifier <> nil then
+    Synchronize(Self.setMainFormGettingTrue);
+  CoInitializeEx(nil, 0);
+  try
+    sincronizador.notifier := Self.notifier;
+    sincronizador.threadControl := Self.threadControl;
+    sincronizador.Datalog := Self.DataLog;
+    sincronizador.CustomParams := Self.CustomParams;
+    sincronizador.getUpdatedData;
+  finally
+    CoUninitialize;
+    if Self.Fnotifier <> nil then
+      Synchronize(finishGettingProcess);
+  end;
+end;
+
+{TRunnerThreadPuters}
+
 procedure TRunnerThreadPuters.finishPuttingProcess;
 begin
-  notifier.unflagSalvandoDadosServidor;
+  if notifier <> nil then
+    notifier.unflagSalvandoDadosServidor;
 end;
 
 procedure TRunnerThreadPuters.setMainFormPuttingTrue;
 begin
-  notifier.flagSalvandoDadosServidor;
+  if FNotifier <> nil then
+    FNotifier.flagSalvandoDadosServidor;
 end;
 
-procedure TRunnerThreadPuters.Setnotifier(
-  const Value: ISincronizacaoNotifier);
+procedure TRunnerThreadPuters.PopulateTranslatedTableNames(aTranslatedTableName: TStringDictionary);
+var
+  i, j: integer;
+  dmIntegrador: TDataIntegradorModuloWeb;
+
+begin
+  for i := 0 to length(sincronizador.posterDataModules)-1 do
+  begin
+    if not Self.ShouldContinue then
+      Break;
+    dmIntegrador := sincronizador.posterDataModules[i].Create(nil);
+    try
+      if (dmIntegrador.getNomeTabela <> EmptyStr) and (dmIntegrador.NomeSingular <> EmptyStr) then
+        if not aTranslatedTableName.ContainsKey(dmIntegrador.getNomeTabela) then
+          aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getNomeTabela)), LowerCase(Trim(dmIntegrador.NomeSingular)));
+      for j := 0 to dmIntegrador.getTabelasDetalhe.Count -1 do
+        if not aTranslatedTableName.ContainsKey(dmIntegrador.getTabelasDetalhe[j].getNomeTabela) then
+          aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getTabelasDetalhe[j].getNomeTabela)), LowerCase(Trim(dmIntegrador.getTabelasDetalhe[j].NomeSingular)));
+    finally
+      FreeAndNil(dmIntegrador);
+    end;
+  end;
+end;
+
+procedure TRunnerThreadPuters.Execute;
+var
+  i: integer;
+  dm: IDataPrincipal;
+  dmIntegrador: TDataIntegradorModuloWeb;
+  http: TIdHTTP;
+  lTranslateTableNames: TStringDictionary;
+begin
+  inherited;
+  if salvandoRetaguarda or gravandoVenda then exit;
+  if Self.Fnotifier <> nil then
+    Synchronize(setMainFormPuttingTrue);
+  salvandoRetaguarda := true;
+  try
+    CoInitializeEx(nil, 0);
+    try
+      http := nil;
+      if gravandoVenda then exit;
+      dm := sincronizador.getNewDataPrincipal;
+      try
+        try
+          http := getHTTPInstance;
+          lTranslateTableNames := TStringDictionary.Create;
+          Self.PopulateTranslatedTableNames(lTranslateTableNames);
+
+          for i := 0 to length(sincronizador.posterDataModules)-1 do
+          begin
+            if not Self.ShouldContinue then
+              Break;
+            dmIntegrador := sincronizador.posterDataModules[i].Create(nil);
+            try
+              dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
+              dmIntegrador.notifier := FNotifier;
+              dmIntegrador.threadControl := Self.FthreadControl;
+              dmIntegrador.CustomParams := Self.FCustomParams;
+              dmIntegrador.dmPrincipal := dm;
+              dmIntegrador.DataLog := Self.FDataLog;
+              dmIntegrador.postRecordsToRemote(http);
+            finally
+              FreeAndNil(dmIntegrador);
+            end;
+          end;
+        except
+          on e: Exception do
+          begin
+            Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
+          end;
+        end;
+      finally
+        dm := nil;
+        if http <> nil then
+          FreeAndNil(http);
+        FreeAndNil(lTranslateTableNames);
+      end;
+    finally
+      CoUninitialize;
+    end;
+  finally
+    salvandoRetaguarda := false;
+    if Self.Fnotifier <> nil then
+      Synchronize(finishPuttingProcess);
+  end;
+end;
+
+{ TCustomRunnerThread }
+
+procedure TCustomRunnerThread.Log(const aLog, aClasse: string);
+begin
+  if Self.FDataLog <> nil then
+   Self.FDataLog.log(aLog, aClasse);
+end;
+
+procedure TCustomRunnerThread.Setnotifier(const Value: ISincronizacaoNotifier);
 begin
   Fnotifier := Value;
 end;
 
-procedure TRunnerThreadGetters.Setnotifier(
-  const Value: ISincronizacaoNotifier);
-begin
-  Fnotifier := Value;
-end;
-
-procedure TRunnerThreadPuters.Setsincronizador(
-  const Value: TDataSincronizadorModuloWeb);
+procedure TCustomRunnerThread.Setsincronizador(const Value: TDataSincronizadorModuloWeb);
 begin
   Fsincronizador := Value;
 end;
 
-procedure TRunnerThreadGetters.Setsincronizador(
-  const Value: TDataSincronizadorModuloWeb);
+function TCustomRunnerThread.ShouldContinue: boolean;
 begin
-  Fsincronizador := Value;
+  result := true;
+  if Self.FThreadControl <> nil then
+    result := Self.FThreadControl.getShouldContinue;
 end;
 
 end.
