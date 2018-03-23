@@ -4,12 +4,20 @@ interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-    ISincronizacaoNotifierUnit, IdHTTP;
+  ISincronizacaoNotifierUnit, IdHTTP,  System.Generics.Collections, Data.DBXJSON;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
-  TServerToClientBlock = array of TDataIntegradorModuloWebClass;
-  TGetterBlocks = array of TServerToClientBlock;
+
+  TServerToClientBlock = class(TList<TDataIntegradorModuloWebClass>)
+  end;
+
+  TGetterBlocks = class(TList<TServerToClientBlock>)
+  end;
+
+  TPosterDataModules = class(TList<TDataIntegradorModuloWebClass>)
+  end;
+
   TDataSincronizadorModuloWeb = class(TDataModule)
     sincronizaRetaguardaTimer: TTimer;
     procedure DataModuleCreate(Sender: TObject);
@@ -17,19 +25,22 @@ type
   private
     atualizando: boolean;
     FonStepGetters: TStepGettersEvent;
+    FgetterBlocks: TGetterBlocks;
+    FposterDataModules: TPosterDataModules;
     procedure SetonStepGetters(const Value: TStepGettersEvent);
     function ShouldContinue: boolean;
+    procedure setGetterBlocks(const Value: TGetterBlocks);
   protected
     Fnotifier: ISincronizacaoNotifier;
     FThreadControl: IThreadControl;
     FCustomParams: ICustomParams;
     FDataLog: ILog;
   public
-    posterDataModules: array of TDataIntegradorModuloWebClass;
-    getterBlocks: TGetterBlocks;
+    property posterDataModules: TPosterDataModules read FposterDataModules write FPosterDataModules;
+    property getterBlocks: TGetterBlocks read FgetterBlocks write setGetterBlocks;
     function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
     procedure addPosterDataModule(dm: TDataIntegradorModuloWebClass);
-    procedure addGetterBlock(getterBlock: TServerToClientBlock);
+    procedure addGetterBlock(aGetterBlock: TServerToClientBlock);
     procedure ativar;
     procedure desativar;
     procedure getUpdatedData;
@@ -39,6 +50,8 @@ type
     property threadControl: IThreadControl read FthreadControl write FthreadControl;
     property CustomParams: ICustomParams read FCustomParams write FCustomParams;
     property Datalog: ILog read FDataLog write FDataLog;
+
+    destructor Destroy; override;
   published
     property onStepGetters: TStepGettersEvent read FonStepGetters write SetonStepGetters;
   end;
@@ -75,11 +88,15 @@ type
 
   TRunnerThreadPuters = class(TCustomRunnerThread)
   private
-    procedure PopulateTranslatedTableNames(aTranslatedTableName: TStringDictionary);
+    FRestrictPosters: boolean;
+    procedure PopulateTranslatedTableNames(aTranslatedTableName: TJsonDictionary);
+    function getJsonFromServer: TJsonArray;
+    function getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
   public
+    constructor Create(CreateSuspended: Boolean);
     procedure Execute; override;
   end;
 
@@ -90,18 +107,14 @@ var
 
 implementation
 
-uses ComObj, acNetUtils;
+uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils;
 
 {$R *.dfm}
 
 procedure TDataSincronizadorModuloWeb.addPosterDataModule(
   dm: TDataIntegradorModuloWebClass);
-var
-  size: integer;
 begin
-  size := length(posterDataModules);
-  SetLength(posterDataModules, size + 1);
-  posterDataModules[size] := dm;
+  Self.FposterDataModules.Add(dm);
 end;
 
 procedure TDataSincronizadorModuloWeb.threadedGetUpdatedData;
@@ -126,33 +139,34 @@ end;
 
 procedure TDataSincronizadorModuloWeb.getUpdatedData;
 var
-  i, j: integer;
+  i: integer;
   block: TServerToClientBlock;
   dm: IDataPrincipal;
   http: TidHTTP;
   dimw: TDataIntegradorModuloWeb;
   dimwName: string;
+  sb: TServerToClientBlock;
+  dmw:  TDataIntegradorModuloWebClass;
 begin
   CoInitializeEx(nil, 0);
   try
     dm := getNewDataPrincipal;
     http := getHTTPInstance;
     try
-      for i := 0 to length(getterBlocks) - 1 do
+      for sb in getterBlocks do
       begin
         if not Self.ShouldContinue then
           Break;
+        for dmw in sb do
+        begin
+          if not Self.ShouldContinue then
+            Break;
 
-        block := getterBlocks[i];
-        dm.startTransaction;
-        try
-          for j := 0 to length(block) - 1 do
-          begin
-            if not Self.ShouldContinue then
-              Break;
-
-            dimw := block[j].Create(nil);
+          dm.startTransaction;
+          try
+            dimw := dmw.Create(nil);
             try
+              i := 1;
               dimwName := dimw.getHumanReadableName;
               dimw.notifier := Self.Fnotifier;
               dimw.dmPrincipal := dm;
@@ -160,21 +174,23 @@ begin
               dimw.CustomParams := Self.FCustomParams;
               dimw.DataLog := Self.FDataLog;
               dimw.getDadosAtualizados(http);
-              if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i+1, length(getterBlocks));
+              if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
+              inc(i);
             finally
               dimw.free;
             end;
-          end;
-          dm.commit;
-        except
-          on E: Exception do
-          begin
-            dm.rollback;
-            if assigned (self.FDataLog) then
+
+            dm.commit;
+          except
+            on E: Exception do
             begin
-              SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
-              Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
-              SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+              dm.rollback;
+              if assigned (self.FDataLog) then
+              begin
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
+                Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+              end;
             end;
           end;
         end;
@@ -190,12 +206,19 @@ end;
 
 procedure TDataSincronizadorModuloWeb.DataModuleCreate(Sender: TObject);
 begin
-  SetLength(posterDataModules, 0);
-  SetLength(getterBlocks, 0);
   sincronizaRetaguardaTimer.Enabled := false;
   atualizando := false;
   salvandoRetaguarda := false;
   gravandoVenda := false;
+  Self.FposterDataModules := TPosterDataModules.Create;
+  Self.FgetterBlocks := TGetterBlocks.Create;
+end;
+
+destructor TDataSincronizadorModuloWeb.Destroy;
+begin
+  Self.FgetterBlocks.Free;
+  Self.FposterDataModules.Free;
+  inherited;
 end;
 
 procedure TDataSincronizadorModuloWeb.ativar;
@@ -208,14 +231,11 @@ begin
   sincronizaRetaguardaTimer.Enabled := false;
 end;
 
-procedure TDataSincronizadorModuloWeb.addGetterBlock(
-  getterBlock: TServerToClientBlock);
+procedure TDataSincronizadorModuloWeb.addGetterBlock(aGetterBlock: TServerToClientBlock);
 var
-  size: integer;
+  item: TDataIntegradorModuloWebClass;
 begin
-  size := length(getterBlocks);
-  SetLength(getterBlocks, size + 1);
-  getterBlocks[size] := getterBlock;
+  SelF.FgetterBlocks.Add(aGetterBlock);
 end;
 
 procedure TDataSincronizadorModuloWeb.sincronizaRetaguardaTimerTimer(
@@ -243,6 +263,11 @@ begin
   end;
 end;
 
+procedure TDataSincronizadorModuloWeb.setGetterBlocks(const Value: TGetterBlocks);
+begin
+  FgetterBlocks := Value;
+end;
+
 procedure TDataSincronizadorModuloWeb.SetonStepGetters(
   const Value: TStepGettersEvent);
 begin
@@ -257,10 +282,10 @@ var
   block: TServerToClientBlock;
 begin
   //DataPrincipal.refreshData;
-  for i := 0 to length(sincronizador.getterBlocks) - 1 do
+  for i := 0 to sincronizador.getterBlocks.Count - 1 do
   begin
     block := sincronizador.getterBlocks[i];
-    for j := 0 to length(block) - 1 do
+    for j := 0 to block.Count - 1 do
     begin
       block[j].updateDataSets;
     end;
@@ -314,28 +339,90 @@ begin
     FNotifier.flagSalvandoDadosServidor;
 end;
 
-procedure TRunnerThreadPuters.PopulateTranslatedTableNames(aTranslatedTableName: TStringDictionary);
+function TRunnerThreadPuters.getJsonFromServer: TJsonArray;
 var
-  i, j: integer;
-  dmIntegrador: TDataIntegradorModuloWeb;
+  JsonFromServer: String;
+begin
+  JsonFromServer := EmptyStr;
+  if (Self.FCustomParams <> nil) then
+    JsonFromServer := Self.FCustomParams.getJsonFromServer(Self.FRestrictPosters);
+
+  if JsonFromServer <> EmptyStr then
+    Result :=  TJsonObject.ParseJSONValue(TEncoding.ASCII.getBytes(JsonFromServer),0) as TJsonArray
+  else
+    Result := TJsonArray.Create;
+end;
+
+function TRunnerThreadPuters.getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
+var
+  i: integer;
+  JsonValue: TJsonValue;
+  JsonObject: TJsonValue;
+  JsonPair, JsonTableMap: TJsonPair;
 
 begin
-  for i := 0 to length(sincronizador.posterDataModules)-1 do
+  Result := TJsonSetting.Create;
+  Result.TableName := LowerCase(Trim(aDataIntegradorModuloWeb.getNomeTabela));
+  Result.NomePlural := LowerCase(Trim(aDataIntegradorModuloWeb.nomePlural));
+  Result.PostToServer := (not Self.FRestrictPosters);
+  for JsonObject in aJsonArray do
   begin
     if not Self.ShouldContinue then
       Break;
-    dmIntegrador := sincronizador.posterDataModules[i].Create(nil);
-    try
-      if (dmIntegrador.getNomeTabela <> EmptyStr) and (dmIntegrador.NomeSingular <> EmptyStr) then
-        if not aTranslatedTableName.ContainsKey(dmIntegrador.getNomeTabela) then
-          aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getNomeTabela)), LowerCase(Trim(dmIntegrador.NomeSingular)));
-      for j := 0 to dmIntegrador.getTabelasDetalhe.Count -1 do
-        if not aTranslatedTableName.ContainsKey(dmIntegrador.getTabelasDetalhe[j].getNomeTabela) then
-          aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getTabelasDetalhe[j].getNomeTabela)), LowerCase(Trim(dmIntegrador.getTabelasDetalhe[j].NomeSingular)));
-    finally
-      FreeAndNil(dmIntegrador);
+
+    if (JsonObject is TJsonObject) then
+    begin
+      if (TJsonObject(JsonObject).Get('client_name') <> nil) and
+         (AnsiSameText(TJsonObject(JsonObject).Get('client_name').JsonValue.Value, Result.TableName)) then
+      begin
+        for i := 0 to TJsonObject(JsonObject).size - 1 do
+        begin
+          JsonPair := TJsonObject(JsonObject).Get(i);
+          if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'statement') then
+          begin
+            Result.PostStatement := TIdDecoderMIME.DecodeString(JsonPair.JsonValue.Value, IndyTextEncoding_UTF8)
+          end;
+          if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'post') then
+            Result.PostToServer := StrToBoolDef(JsonPair.JsonString.Value, True)
+        end;
+      end;
     end;
   end;
+end;
+
+procedure TRunnerThreadPuters.PopulateTranslatedTableNames(aTranslatedTableName: TJsonDictionary);
+var
+  i, j: integer;
+  dmIntegrador: TDataIntegradorModuloWeb;
+  JsonServer: TJsonArray;
+begin
+  JsonServer := Self.getJsonFromServer;
+  try
+    for i := 0 to sincronizador.posterDataModules.Count - 1 do
+    begin
+      if not Self.ShouldContinue then
+        Break;
+      dmIntegrador := sincronizador.posterDataModules[i].Create(nil);
+      try
+        if (dmIntegrador.getNomeTabela <> EmptyStr) and (dmIntegrador.NomeSingular <> EmptyStr) then
+          if not aTranslatedTableName.ContainsKey(dmIntegrador.getNomeTabela) then
+            aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getNomeTabela)), Self.getJsonSetting(JsonServer, dmIntegrador));
+        for j := 0 to dmIntegrador.getTabelasDetalhe.Count -1 do
+          if not aTranslatedTableName.ContainsKey(dmIntegrador.getTabelasDetalhe[j].getNomeTabela) then
+            aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getTabelasDetalhe[j].getNomeTabela)), Self.getJsonSetting(JsonServer, dmIntegrador));
+      finally
+        FreeAndNil(dmIntegrador);
+      end;
+    end;
+  finally
+    JsonServer.Free;
+  end;
+end;
+
+constructor TRunnerThreadPuters.Create(CreateSuspended: Boolean);
+begin
+  inherited Create(CreateSuspended);
+  Self.FRestrictPosters := False;
 end;
 
 procedure TRunnerThreadPuters.Execute;
@@ -344,7 +431,8 @@ var
   dm: IDataPrincipal;
   dmIntegrador: TDataIntegradorModuloWeb;
   http: TIdHTTP;
-  lTranslateTableNames: TStringDictionary;
+  lTranslateTableNames: TJsonDictionary;
+  JsonSetting: TJsonSetting;
 begin
   inherited;
   if salvandoRetaguarda or gravandoVenda then exit;
@@ -360,22 +448,30 @@ begin
       try
         try
           http := getHTTPInstance;
-          lTranslateTableNames := TStringDictionary.Create;
+          lTranslateTableNames := TJsonDictionary.Create;
           Self.PopulateTranslatedTableNames(lTranslateTableNames);
 
-          for i := 0 to length(sincronizador.posterDataModules)-1 do
+          for i := 0 to sincronizador.posterDataModules.Count - 1 do
           begin
             if not Self.ShouldContinue then
               Break;
+
             dmIntegrador := sincronizador.posterDataModules[i].Create(nil);
             try
-              dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
-              dmIntegrador.notifier := FNotifier;
-              dmIntegrador.threadControl := Self.FthreadControl;
-              dmIntegrador.CustomParams := Self.FCustomParams;
-              dmIntegrador.dmPrincipal := dm;
-              dmIntegrador.DataLog := Self.FDataLog;
-              dmIntegrador.postRecordsToRemote(http);
+              JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
+              if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or
+                ((JsonSetting = nil) and (not Self.FRestrictPosters)) then
+              begin
+                if (JsonSetting <> nil) then
+                  dmIntegrador.SetStatementForPost(JsonSetting.PostStatement);
+                dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
+                dmIntegrador.notifier := FNotifier;
+                dmIntegrador.threadControl := Self.FthreadControl;
+                dmIntegrador.CustomParams := Self.FCustomParams;
+                dmIntegrador.dmPrincipal := dm;
+                dmIntegrador.DataLog := Self.FDataLog;
+                dmIntegrador.postRecordsToRemote(http);
+              end;
             finally
               FreeAndNil(dmIntegrador);
             end;
