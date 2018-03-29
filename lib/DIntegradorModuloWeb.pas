@@ -1130,8 +1130,6 @@ begin
   for I := 0 to aDs.FieldCount - 1 do
   begin
     nome := aDs.Fields[i].FieldName;
-    if UpperCase(nome) = 'VERSION_ID' then
-      continue;
     try
       if VarIsNull(aDs.Fields[i].AsVariant) then
         fieldValue := ''
