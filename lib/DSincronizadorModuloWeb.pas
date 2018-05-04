@@ -409,7 +409,7 @@ begin
             aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getNomeTabela)), Self.getJsonSetting(JsonServer, dmIntegrador));
         for j := 0 to dmIntegrador.getTabelasDetalhe.Count -1 do
           if not aTranslatedTableName.ContainsKey(dmIntegrador.getTabelasDetalhe[j].getNomeTabela) then
-            aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getTabelasDetalhe[j].getNomeTabela)), Self.getJsonSetting(JsonServer, dmIntegrador));
+            aTranslatedTableName.Add(LowerCase(Trim(dmIntegrador.getTabelasDetalhe[j].getNomeTabela)), Self.getJsonSetting(JsonServer, dmIntegrador.getTabelasDetalhe[j]));
       finally
         FreeAndNil(dmIntegrador);
       end;
