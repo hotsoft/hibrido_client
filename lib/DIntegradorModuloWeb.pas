@@ -124,7 +124,6 @@ type
     destructor Destroy; override;
   end;
 
-
   TDataIntegradorModuloWeb = class(TDataModule)
   private
     FdmPrincipal: IDataPrincipal;
@@ -134,6 +133,7 @@ type
     FstopOnPostRecordError: boolean;
     FStopOnGetRecordError : boolean;
     FStatementForPost: string;
+    FnomeFK: string;
     procedure addTabelaDetalheParams(valorPK: integer;
       params: TStringList;
       tabelaDetalhe: TTabelaDetalhe);
@@ -166,7 +166,6 @@ type
     clientToServer: boolean;
     FEncodeJsonValues : boolean;
     tabelasDependentes: TTabelaDependenteList;
-    tabelasDetalhe: TTabelaDetalheList;
     offset: integer;
     paramsType: TParamsType;
     function getVersionFieldName: string; virtual;
@@ -234,7 +233,7 @@ type
     function getdmPrincipal: IDataPrincipal; virtual;
     function JsonObjectHasPair(const aName: string; aJson: TJSONObject): boolean;
     function DataSetToArray(aDs: TDataSet): TStringDictionary; virtual;
-    procedure BeforeUpdateInsertRecord(const aTableName: String; node: IXMLDomNode; const id: integer; var handled: boolean); virtual;
+    procedure BeforeUpdateInsertRecord(aParentIntegrador, aIntegrador:TDataIntegradorModuloWeb; node: IXMLDomNode; const id: integer; var handled: boolean); virtual;
     procedure ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb); virtual;
     function getTranslatedTable(const aServerName: string): TDataIntegradorModuloWeb; virtual;
     function getNomeSingular: string; virtual;
@@ -247,8 +246,11 @@ type
       Integrador: TDataIntegradorModuloWeb); virtual;
     function GetDefaultValueForSalvouRetaguarda: Char; virtual;
     function getDefaultSQLStatementForPost: string; virtual;
+    function GetNomeFK: string; virtual;
+    procedure setNomeFK(const Value: string); virtual;
   public
     translations: TTranslationSet;
+    tabelasDetalhe: TTabelaDetalheList;
     verbose: boolean;
     property notifier: ISincronizacaoNotifier read Fnotifier write Fnotifier;
     property threadControl: IThreadControl read FthreadControl write SetthreadControl;
@@ -278,24 +280,35 @@ type
     function getTabelasDetalhe: TTabelaDetalheList;
     property EncodeJsonValues: boolean read FEncodeJsonValues write FEncodeJsonValues;
     procedure SetStatementForPost(const aStatement: string);
+    property nomeFK: string read GetNomeFK write setNomeFK;
   end;
 
   TDataIntegradorModuloWebClass = class of TDataIntegradorModuloWeb;
 
+  TGeneratorId = class
+  private
+    FIDHighValue: integer;
+    FIDLowValue: integer;
+    FdmPrincipal: IDataPrincipal;
+    function getdmPrincipal: IDataPrincipal;
+    procedure SetdmPrincipal(const Value: IDataPrincipal);
+  public
+    function getNewId: integer;
+    property dmPrincipal: IDataPrincipal read getdmPrincipal write SetdmPrincipal;
+  end;
+
   TTabelaDetalhe = class(TDataIntegradorModuloWeb)
   private
     FnomeParametro: string;
-    FnomeFK: string;
+    FGenId: TGeneratorId;
   protected
     function GetNomeParametro: string; virtual;
     procedure setNomeParametro(const Value: string); virtual;
-    function GetNomeFK: string; virtual;
-    procedure setNomeFK(const Value: string); virtual;
+    function getNewId(node: IXMLDomNode): Integer; override;
   public
     constructor Create(AOwner: TComponent);
     destructor Destroy; override;
     property nomeParametro: string read GetNomeParametro write setNomeParametro;
-    property nomeFK: string read GetNomeFK write setNomeFK;
   end;
 
 var
@@ -518,7 +531,7 @@ begin
   Result := 'INSERT INTO ' + nomeTabela + getFieldList(node) + ' values ' + getFieldValues(node, Self);
 end;
 
-procedure TDataIntegradorModuloWeb.BeforeUpdateInsertRecord(const aTableName: String; node: IXMLDomNode; const id: integer; var handled: boolean);
+procedure TDataIntegradorModuloWeb.BeforeUpdateInsertRecord(aParentIntegrador, aIntegrador:TDataIntegradorModuloWeb; node: IXMLDomNode; const id: integer; var handled: boolean);
 begin
   handled := False;
 end;
@@ -717,7 +730,7 @@ begin
             if nodeItem.selectSingleNode('./id') <> nil then
               ChildId := StrToIntDef(nodeItem.selectSingleNode('./id').text, 0);
             handled := False;
-            Self.BeforeUpdateInsertRecord(Detail.FnomeTabela, nodeItem, ChildId, handled);
+            Self.BeforeUpdateInsertRecord(Self, Detail, nodeItem, ChildId, handled);
             if not handled then
               Self.ExecInsertRecord(nodeItem, ChildId, Detail);
           end;
@@ -736,7 +749,7 @@ var
   handled : boolean;
 begin
   handled := False;
-  Self.BeforeUpdateInsertRecord(Self.FNomeTabela, node, id, handled);
+  Self.BeforeUpdateInsertRecord(nil, Self, node, id, handled);
   if not handled then
     Self.ExecInsertRecord(node, id, Self);
 end;
@@ -1204,6 +1217,16 @@ end;
 function TDataIntegradorModuloWeb.getNewId(node: IXMLDomNode): Integer;
 begin
   Result := 0;
+end;
+
+function TDataIntegradorModuloWeb.GetNomeFK: string;
+begin
+  Result := FnomeFK;
+end;
+
+procedure TDataIntegradorModuloWeb.setNomeFK(const Value: string);
+begin
+  FnomeFK := Value;
 end;
 
 function TDataIntegradorModuloWeb.GetNomePKLocal: string;
@@ -1740,14 +1763,14 @@ begin
   Self.FStatementForPost := EmptyStr;
 end;
 
-
 destructor TDataIntegradorModuloWeb.Destroy;
 var
-  Detalhe: TTabelaDetalhe;
   Dependente: TTabelaDependente;
+  Detalhe: TTabelaDetalhe;
 begin
   for Detalhe in Self.tabelasDetalhe do
      Detalhe.Free;
+
   for Dependente in Self.tabelasDependentes do
      Dependente.Free;
   if Self.FFieldList <> nil then
@@ -1977,26 +2000,27 @@ constructor TTabelaDetalhe.Create;
 begin
   inherited;
   translations := TTranslationSet.create(nil);
+  Self.duasVias := True;
+  Self.translations.add('id', 'idremoto');
+  Self.translations.add('version_id','version_id');
+  Self.FGenId := TGeneratorId.Create;
 end;
 
 destructor TTabelaDetalhe.Destroy;
 begin
+  Self.FGenId.Free;
   inherited;
 end;
 
-function TTabelaDetalhe.GetNomeFK: string;
+function TTabelaDetalhe.getNewId(node: IXMLDomNode): Integer;
 begin
-  Result := FnomeFK;
+  Self.FGenId.dmPrincipal := Self.dmPrincipal;
+  Result := Self.FGenId.getNewId;
 end;
 
 function TTabelaDetalhe.GetNomeParametro: string;
 begin
   Result := FnomeParametro;
-end;
-
-procedure TTabelaDetalhe.setNomeFK(const Value: string);
-begin
-  FnomeFK := Value;
 end;
 
 procedure TTabelaDetalhe.setNomeParametro(const Value: string);
@@ -2196,6 +2220,40 @@ begin
   for Pair in Self do
     Pair.Value.Free;
   inherited;
+end;
+
+{ TGeneratorId }
+
+function TGeneratorId.getdmPrincipal: IDataPrincipal;
+begin
+  Result := Self.FdmPrincipal
+end;
+
+function TGeneratorId.getNewId: integer;
+var
+  v: variant;
+begin
+  Result := 0;
+  if Self.FdmPrincipal <> nil then
+  begin
+    FIDHighValue:= Self.FdmPrincipal.getSQLIntegerResult('SELECT gen_id(KGIDHIGH, 1) FROM RDB$DATABASE');
+    if (FIDLowValue = 10) or (FIDHighValue = -1) then
+    begin
+        v := Self.dmPrincipal.getSQLIntegerResult('SELECT gen_id(KGIDHIGH, 1) FROM RDB$DATABASE');
+        if v = NULL then
+          raise Exception.Create('Não conseguiu obter o ID do server para inclusão');
+
+        FIDHighValue := v;
+        FIDLowValue := 0;
+    end;
+    Result := FIDHighValue * 10 + FIDLowValue;
+    Inc(FIDLowValue);
+  end;
+end;
+
+procedure TGeneratorId.SetdmPrincipal(const Value: IDataPrincipal);
+begin
+  Self.FdmPrincipal := Value;
 end;
 
 end.
