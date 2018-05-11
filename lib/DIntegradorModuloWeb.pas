@@ -893,7 +893,7 @@ begin
     for i := 0 to node.childNodes.length - 1 do
     begin
       name := LowerCase(translateFieldNameServerToPdv(node.childNodes.item[i], Integrador));
-      if name <> '*' then
+      if (name <> '*') and (name <> Self.nomePKLocal)then
         if Self.getIncludeFieldNameOnList(dmInsert, name, Integrador) and (StrInsert.IndexOf(name) < 0) then
         begin
           StrInsert.Add(name);
