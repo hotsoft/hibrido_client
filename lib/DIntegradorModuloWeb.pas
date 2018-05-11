@@ -477,6 +477,7 @@ begin
           SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
           {$ENDIF}
           Self.resyncRecord(id);
+          raise;
         end;
       end;
     end;
@@ -1440,18 +1441,18 @@ begin
         on e: EIdHTTPProtocolException do
         begin
           if e.ErrorCode = 422 then
-            log := Format('Erro ao tentar salvar registro. Classe: %s, Código de erro: %d, Erro: %s.',[ClassName, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage)])
+            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage)])
           else if e.ErrorCode = 500 then
-            log := Format('Erro ao tentar salvar registro. Classe: %s, Código de erro: %d. Erro: Erro interno no servidor: %s. ',[ClassName, e.ErrorCode, e.ErrorMessage])
+            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: Erro interno no servidor: %s. ',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage])
           else
-            log :=  Format('Erro ao tentar salvar registro. Classe: %s, Código de erro: %d. Erro: %s.',[ClassName, e.ErrorCode, e.ErrorMessage]);
+            log :=  Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage]);
 
           Self.log(log, 'Sync');
-          raise EIntegradorException.Create(log) ; //Logou, agorra manda pra cima
+          raise EIntegradorException.Create(log) ; //Logou, agora manda pra cima
         end;
         on E: Exception do
         begin
-          log := 'Erro ao tentar salvar registro. Classe: ' + ClassName + '. Erro: ' + e.Message;
+          log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Erro: %s', [ ClassName, Self.nomeTabela, e.Message]);
           Self.log(log, 'Sync');
           raise EIntegradorException.Create(log) ;
         end;
