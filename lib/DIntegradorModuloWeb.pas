@@ -696,7 +696,8 @@ begin
         try
           StrCheckInsert.Delimiter := ':';
           StrCheckInsert.DelimitedText := FieldsListInsert;
-          if StrCheckInsert.IndexOf(Integrador.nomePKLocal+',') < 0 then
+          if (StrCheckInsert.IndexOf(Integrador.nomePKLocal+',') < 0) and
+            (StrCheckInsert.IndexOf(Integrador.nomePKLocal) < 0) then
             FieldsListInsert := ':'+ Integrador.nomePKLocal + ',' + FieldsListInsert;
         finally
           StrCheckInsert.Free;
@@ -893,7 +894,7 @@ begin
     for i := 0 to node.childNodes.length - 1 do
     begin
       name := LowerCase(translateFieldNameServerToPdv(node.childNodes.item[i], Integrador));
-      if (name <> '*') and (name <> Self.nomePKLocal)then
+      if (name <> '*')then
         if Self.getIncludeFieldNameOnList(dmInsert, name, Integrador) and (StrInsert.IndexOf(name) < 0) then
         begin
           StrInsert.Add(name);
