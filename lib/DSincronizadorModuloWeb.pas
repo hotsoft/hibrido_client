@@ -27,18 +27,22 @@ type
     FonStepGetters: TStepGettersEvent;
     FgetterBlocks: TGetterBlocks;
     FposterDataModules: TPosterDataModules;
+    FOnException: TOnExceptionProcedure;
     procedure SetonStepGetters(const Value: TStepGettersEvent);
     function ShouldContinue: boolean;
     procedure setGetterBlocks(const Value: TGetterBlocks);
+    procedure SetOnException(const Value: TOnExceptionProcedure);
   protected
     Fnotifier: ISincronizacaoNotifier;
     FThreadControl: IThreadControl;
     FCustomParams: ICustomParams;
     FDataLog: ILog;
+    FIDataPrincipal: IDataPrincipal;
   public
     property posterDataModules: TPosterDataModules read FposterDataModules write FPosterDataModules;
     property getterBlocks: TGetterBlocks read FgetterBlocks write setGetterBlocks;
-    function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
+    function getNewDataPrincipal: IDataPrincipal; virtual;
+    procedure SetNewDataPrincipal(aIDataPrincipal : IDataPrincipal);
     procedure addPosterDataModule(dm: TDataIntegradorModuloWebClass);
     procedure addGetterBlock(aGetterBlock: TServerToClientBlock);
     procedure ativar;
@@ -50,6 +54,7 @@ type
     property threadControl: IThreadControl read FthreadControl write FthreadControl;
     property CustomParams: ICustomParams read FCustomParams write FCustomParams;
     property Datalog: ILog read FDataLog write FDataLog;
+    property OnException: TOnExceptionProcedure read FOnException write SetOnException;
 
     destructor Destroy; override;
   published
@@ -66,6 +71,7 @@ type
     Fsincronizador: TDataSincronizadorModuloWeb;
     FCustomParams: ICustomParams;
     FDataLog: ILog;
+    FOnException: TOnExceptionProcedure;
     function ShouldContinue: boolean;
     procedure Log(const aLog, aClasse: string);
   public
@@ -74,6 +80,7 @@ type
     property threadControl: IThreadControl read FthreadControl write FthreadControl;
     property CustomParams: ICustomParams read FCustomParams write FCustomParams;
     property DataLog: ILog read FDataLog write FDataLog;
+    procedure SetOnException(aOnException: TOnExceptionProcedure);
   end;
 
   TRunnerThreadGetters = class(TCustomRunnerThread)
@@ -127,6 +134,7 @@ begin
   t.CustomParams := self.CustomParams;
   t.DataLog := Self.Datalog;
   t.notifier := notifier;
+  t.SetOnException(Self.FOnException);
   t.Start;
 end;
 
@@ -135,6 +143,11 @@ begin
   Result := true;
   if Self.FThreadControl <> nil then
     result := Self.FThreadControl.getShouldContinue;
+end;
+
+function TDataSincronizadorModuloWeb.getNewDataPrincipal: IDataPrincipal;
+begin
+  Result := Self.FIDataPrincipal;
 end;
 
 procedure TDataSincronizadorModuloWeb.getUpdatedData;
@@ -163,8 +176,8 @@ begin
             Break;
 
           dm.startTransaction;
+          dimw := dmw.Create(nil);
           try
-            dimw := dmw.Create(nil);
             try
               i := 1;
               dimwName := dimw.getHumanReadableName;
@@ -176,22 +189,23 @@ begin
               dimw.getDadosAtualizados(http);
               if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
               inc(i);
-            finally
-              dimw.free;
-            end;
-
-            dm.commit;
-          except
-            on E: Exception do
-            begin
-              dm.rollback;
-              if assigned (self.FDataLog) then
+              dm.commit;
+            except
+              on E: Exception do
               begin
-                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
-                Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
-                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+                dm.rollback;
+                if assigned(Self.FOnException) then
+                  Self.FOnException(haGet, dimw, E);
+                if assigned (self.FDataLog) then
+                begin
+                  SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
+                  Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
+                  SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+                end;
               end;
             end;
+          finally
+            dimw.free;
           end;
         end;
       end;
@@ -255,6 +269,7 @@ begin
   t.CustomParams := Self.FCustomParams;
   t.FreeOnTerminate := not wait;
   t.DataLog := Self.FDataLog;
+  t.SetOnException(Self.FOnException);
   t.Start;
   if wait then
   begin
@@ -266,6 +281,16 @@ end;
 procedure TDataSincronizadorModuloWeb.setGetterBlocks(const Value: TGetterBlocks);
 begin
   FgetterBlocks := Value;
+end;
+
+procedure TDataSincronizadorModuloWeb.SetNewDataPrincipal(aIDataPrincipal: IDataPrincipal);
+begin
+  Self.FIDataPrincipal := aIDataPrincipal;
+end;
+
+procedure TDataSincronizadorModuloWeb.SetOnException(const Value: TOnExceptionProcedure);
+begin
+  FOnException := Value;
 end;
 
 procedure TDataSincronizadorModuloWeb.SetonStepGetters(
@@ -317,6 +342,7 @@ begin
     sincronizador.threadControl := Self.threadControl;
     sincronizador.Datalog := Self.DataLog;
     sincronizador.CustomParams := Self.CustomParams;
+    sincronizador.OnException := Self.FOnException;
     sincronizador.getUpdatedData;
   finally
     CoUninitialize;
@@ -470,6 +496,7 @@ begin
                 dmIntegrador.CustomParams := Self.FCustomParams;
                 dmIntegrador.dmPrincipal := dm;
                 dmIntegrador.DataLog := Self.FDataLog;
+                dmIntegrador.SetOnException(Self.FOnException);
                 dmIntegrador.postRecordsToRemote(http);
               end;
             finally
@@ -509,6 +536,11 @@ end;
 procedure TCustomRunnerThread.Setnotifier(const Value: ISincronizacaoNotifier);
 begin
   Fnotifier := Value;
+end;
+
+procedure TCustomRunnerThread.SetOnException(aOnException: TOnExceptionProcedure);
+begin
+  Self.FOnException := aOnException;
 end;
 
 procedure TCustomRunnerThread.Setsincronizador(const Value: TDataSincronizadorModuloWeb);

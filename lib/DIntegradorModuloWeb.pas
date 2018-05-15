@@ -12,6 +12,12 @@ uses
   Soap.EncdDecd, Variants {$IFDEF VER250}, Data.DBXJSON, Data.DBXPlatform {$ENDIF} {$IFDEF VER300}, System.JSON {$ENDIF};
 
 type
+  THttpAction = (haGet, haPost);
+
+  TDataIntegradorModuloWeb = class;
+
+  TOnExceptionProcedure = procedure (AHttpAction: THttpAction; aIntegrador: TDataIntegradorModuloWeb; AException: Exception) of object;
+
   TJsonSetting = class
   private
     FTableName: string;
@@ -69,7 +75,7 @@ type
   end;
 
   TDMLOperation = (dmInsert, dmUpdate);
-  THttpAction = (haGet, haPost);
+
   TParamsType = (ptParam, ptJSON);
 
   TAnonymousMethod = reference to procedure(aDataSet: TDataSet);
@@ -168,6 +174,8 @@ type
     tabelasDependentes: TTabelaDependenteList;
     offset: integer;
     paramsType: TParamsType;
+    FOnException: TOnExceptionProcedure;
+    FLastStream: string;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
@@ -221,7 +229,7 @@ type
     function getUpdateStatement(node: IXMLDomNode; const id: integer): String; virtual;
     function getInsertStatement(node: IXMLDomNode): String; virtual;
     function getNewId(node: IXMLDomNode): Integer; virtual;
-    function post(ds: TDataSet; http: TidHTTP; url: string): string; virtual;
+    function Post(ds: TDataSet; http: TidHTTP; const url: string): string; virtual;
     procedure addDetailsToJsonList(aDetailList: TDetailList; aDs: TDataSet); virtual;
     procedure SelectDetails(aDetailList: TDetailList; aValorPK: integer; aTabelaDetalhe: TTabelaDetalhe); virtual;
     function getJsonObject(aDs: TDataSet; aTranslations: TTranslationSet; aDict: TStringDictionary; aNestedAttribute: string = '') : TJsonObject; virtual;
@@ -281,6 +289,8 @@ type
     property EncodeJsonValues: boolean read FEncodeJsonValues write FEncodeJsonValues;
     procedure SetStatementForPost(const aStatement: string);
     property nomeFK: string read GetNomeFK write setNomeFK;
+    procedure SetOnException(aOnException: TOnExceptionProcedure);
+    function getLastStream: string;
   end;
 
   TDataIntegradorModuloWebClass = class of TDataIntegradorModuloWeb;
@@ -315,7 +325,7 @@ var
   DataIntegradorModuloWeb: TDataIntegradorModuloWeb;
 implementation
 
-uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal;
+uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn;
 
 {$R *.dfm}
 
@@ -351,15 +361,14 @@ begin
       notifier.setCustomMessage('Buscando ' + getHumanReadableName + '...');
     numRegistros := 0;
     {$IFDEF HibridoClientDLL}
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_BLUE OR 4 OR FOREGROUND_INTENSITY ); //);
-    writeln('URL: ' + url);
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+    UtilsUnitAgendadorUn.WritePurpleLog('URL: ' + url);
     {$ENDIF}
 
     Self.Log(Format('Buscando %s',[getHumanReadableName]));
     Self.Log(url);
 
     xmlContent := getRemoteXmlContent(url, http, erro);
+    Self.FLastStream := xmlContent;
 
     if (erro <> EmptyStr) then
     begin
@@ -470,12 +479,9 @@ begin
           dmPrincipal.rollBack;
           Self.log(Format('Erro ao importar a tabela "%s":', [self.nomeTabela]));
           {$IFDEF HibridoClientDLL}
-          SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
+          UtilsUnitAgendadorUn.WriteRedLog(e.Message);
           {$ENDIF}
           Self.log(e.Message);
-          {$IFDEF HibridoClientDLL}
-          SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
-          {$ENDIF}
           Self.resyncRecord(id);
           raise;
         end;
@@ -549,6 +555,11 @@ begin
       Result := Detalhe;
       break;
     end;
+end;
+
+procedure TDataIntegradorModuloWeb.SetOnException(aOnException: TOnExceptionProcedure);
+begin
+  FOnException := aOnException;
 end;
 
 procedure TDataIntegradorModuloWeb.SetQueryParameters(qry: TSQLDataSet; DMLOperation: TDMLOperation; node: IXMLDomNode;  ChildrenNodes: TXMLNodeDictionary;  Integrador: TDataIntegradorModuloWeb);
@@ -1216,6 +1227,11 @@ begin
   end;
 end;
 
+function TDataIntegradorModuloWeb.getLastStream: string;
+begin
+  Result := FLastStream;
+end;
+
 function TDataIntegradorModuloWeb.getNewId(node: IXMLDomNode): Integer;
 begin
   Result := 0;
@@ -1282,7 +1298,7 @@ begin
   end;
 end;
 
-function TDataIntegradorModuloWeb.post(ds: TDataSet; http: TidHTTP; url: string): string;
+function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; const url: string): string;
 var
   params: TStringList;
   pStream: TStringStream;
@@ -1300,14 +1316,15 @@ begin
     finally
       params.Free;
     end;
-  end;
-  if paramsType = ptJSON then
+  end
+  else if paramsType = ptJSON then
   begin
     pStream := TStringStream.Create('', TEncoding.UTF8);
     DetailList := TDetailList.Create;
     try
       Self.addDetailsToJsonList(DetailList, ds);
       Self.addMasterTableToJson(DetailList, ds, pStream);
+      Self.FLastStream := pStream.DataString;
       result := http.Post(url, pStream);
     finally
       pStream.Free;
@@ -1398,7 +1415,7 @@ begin
         else
         begin
           url := getRequestUrlForAction(true, -1);
-          xmlContent := post(ds, http, url);
+          xmlContent := Self.Post(ds, http, url);
         end;
         sucesso := true;
         Result := Self.getXMLContentAsXMLDom(xmlContent);
@@ -1587,9 +1604,7 @@ begin
       qry.commandText := Self.getDefaultSQLStatementForPost;
 
       {$IFDEF HibridoClientDLL}
-      SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 14 OR 4); //FOREGROUND_RED);
-      writeln(qry.CommandText);
-      SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+      UtilsUnitAgendadorUn.WriteYellowLog(qry.CommandText);
       {$ENDIF}
       qry.Open;
       total := qry.RecordCount;
@@ -1621,6 +1636,9 @@ begin
         except
           on e: Exception do
           begin
+            if assigned(Self.FOnException) then
+              Self.FOnException(haPost, Self, E);
+
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
             if stopOnPostRecordError then
               raise;
