@@ -143,7 +143,7 @@ type
     procedure addTabelaDetalheParams(valorPK: integer;
       params: TStringList;
       tabelaDetalhe: TTabelaDetalhe);
-    function GetErrorMessage(const aXML: string): string;
+    function GetErrorMessage(const aErro, aContentType: string): string;
     procedure SetDataLog(const Value: ILog);
     procedure UpdateRecordDetalhe(pNode: IXMLDomNode; pTabelasDetalhe : TTabelaDetalheList);
     procedure SetthreadControl(const Value: IThreadControl);
@@ -325,7 +325,7 @@ var
   DataIntegradorModuloWeb: TDataIntegradorModuloWeb;
 implementation
 
-uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn;
+uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn, MSHTML;
 
 {$R *.dfm}
 
@@ -372,12 +372,12 @@ begin
 
     if (erro <> EmptyStr) then
     begin
-      vLog := Format('Erro importando "%s": "%s". '+ #13#10, [getHumanReadableName, GetErrorMessage(erro)]);
+      vLog := Format('Erro importando "%s": "%s". '+ #13#10, [getHumanReadableName, GetErrorMessage(erro, http.Response.ContentType)]);
       Self.Log(vLog);
       raise EIntegradorException.Create(vLog);
     end;
 
-    if trim(xmlContent) <> '' then
+    if (trim(xmlContent) <> '') and (StrUtils.ContainsText(http.Response.ContentType, 'xml')) then
     begin
       doc := CoDOMDocument60.Create;
       try
@@ -1458,7 +1458,7 @@ begin
         on e: EIdHTTPProtocolException do
         begin
           if e.ErrorCode = 422 then
-            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage)])
+            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage, 'xml')])
           else if e.ErrorCode = 500 then
             log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: Erro interno no servidor: %s. ',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage])
           else
@@ -1493,36 +1493,57 @@ begin
   FDataLog := Value;
 end;
 
-function TDataIntegradorModuloWeb.GetErrorMessage(const aXML: string): string;
+function TDataIntegradorModuloWeb.GetErrorMessage(const aErro, aContentType: string): string;
 var
   node: IXMLNode;
   list: IXMLNodeList;
   XML: IXMLDocument;
+  htmlDoc: OleVariant;
+  el: OleVariant;
+  i: Integer;
+
 begin
   Result := EmptyStr;
-  if Trim(aXML) <> EmptyStr then
+  if Trim(aErro) <> EmptyStr then
   begin
-    CoInitialize(nil);
-    XML := TXMLDocument.Create(Self);
-    try
-      XML.LoadFromXML(aXML);
-      list := XML.ChildNodes;
-      if list.FindNode('errors') <> nil then
-      begin
-        list := list.FindNode('errors').ChildNodes;
-        if list <> nil  then
+    if StrUtils.ContainsText(aContentType, 'xml') then
+    begin
+      CoInitialize(nil);
+      XML := TXMLDocument.Create(Self);
+      try
+        XML.LoadFromXML(aErro);
+        list := XML.ChildNodes;
+        if list.FindNode('errors') <> nil then
         begin
-          node := list.FindNode('error');
-          if node <> nil then
-            Result := UTF8ToString(HTTPDecode(node.Text));
+          list := list.FindNode('errors').ChildNodes;
+          if list <> nil  then
+          begin
+            node := list.FindNode('error');
+            if node <> nil then
+              Result := UTF8ToString(HTTPDecode(node.Text));
+          end;
+        end;
+      finally
+        CoUninitialize;
+      end;
+    end
+    else if (StrUtils.ContainsText(aContentType, 'html')) then
+    begin
+      htmlDoc := coHTMLDocument.Create as IHTMLDocument2;
+      htmlDoc.write(aErro);
+      htmlDoc.close;
+      for i := 0 to htmlDoc.body.all.length - 1 do
+      begin
+        el := htmlDoc.body.all.item(i);
+        if (el.tagName = 'H1') then
+        begin
+          Result := el.innerText;
+          break;
         end;
       end;
-    finally
-      CoUninitialize;
     end;
   end;
 end;
-
 
 procedure TDataIntegradorModuloWeb.addDetails(ds: TDataSet; params: TStringList);
 var
