@@ -1509,12 +1509,13 @@ begin
       list := XML.ChildNodes;
       if list.FindNode('errors') <> nil then
       begin
+        Result := UTF8ToString(HTTPDecode(list.FindNode('errors').Text));
         list := list.FindNode('errors').ChildNodes;
         if list <> nil  then
         begin
           node := list.FindNode('error');
           if node <> nil then
-            Result := UTF8ToString(HTTPDecode(node.Text));
+            Result := Trim(Result + UTF8ToString(HTTPDecode(node.Text)));
         end;
       end;
     finally
