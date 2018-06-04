@@ -1629,7 +1629,11 @@ begin
       UtilsUnitAgendadorUn.WriteYellowLog(qry.CommandText);
       {$ENDIF}
       qry.Open;
-      total := qry.RecordCount;
+      try //Pode ocorrer erro no RecordCount conforme sintax do SQL
+        total := qry.RecordCount;
+      except
+        total := -1;
+      end;
       n := 1;
       if http = nil then
       begin
