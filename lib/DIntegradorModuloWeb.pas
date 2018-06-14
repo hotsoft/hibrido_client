@@ -1217,6 +1217,8 @@ begin
         begin
           if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
             Result.AddPair(nome, valor)
+          else if StringUTF8 = '' then
+            Result.AddPair(nome, TIdEncoderMIME.EncodeString('§NULL§', IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
           else
             Result.AddPair(nome, TIdEncoderMIME.EncodeString(StringUTF8, IndyTextEncoding_UTF8))
         end
