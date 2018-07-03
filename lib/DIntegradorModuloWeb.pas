@@ -1513,18 +1513,21 @@ begin
     CoInitialize(nil);
     XML := TXMLDocument.Create(Self);
     try
-        XML.LoadFromXML(aErro);
+      XML.LoadFromXML(aErro);
       list := XML.ChildNodes;
       if list.FindNode('errors') <> nil then
       begin
-        Result := UTF8ToString(HTTPDecode(list.FindNode('errors').Text));
         list := list.FindNode('errors').ChildNodes;
         if list <> nil  then
         begin
           node := list.FindNode('error');
           if node <> nil then
             Result := Trim(Result + UTF8ToString(HTTPDecode(node.Text)));
-        end;
+        end
+        else if list.FindNode('errors').IsTextElement then
+          Result := UTF8ToString(HTTPDecode(list.FindNode('errors').Text))
+        else
+          Result := aErro;
       end;
     finally
       CoUninitialize;
