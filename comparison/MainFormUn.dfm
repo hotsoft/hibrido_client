@@ -2,7 +2,7 @@ object MainForm: TMainForm
   Left = 0
   Top = 0
   Caption = 'Comparison'
-  ClientHeight = 431
+  ClientHeight = 464
   ClientWidth = 677
   Color = clBtnFace
   Font.Charset = DEFAULT_CHARSET
@@ -13,7 +13,7 @@ object MainForm: TMainForm
   OldCreateOrder = False
   DesignSize = (
     677
-    431)
+    464)
   PixelsPerInch = 96
   TextHeight = 13
   object Bevel1: TBevel
@@ -22,6 +22,13 @@ object MainForm: TMainForm
     Width = 651
     Height = 47
     Shape = bsBottomLine
+  end
+  object TableLabel: TLabel
+    Left = 20
+    Top = 446
+    Width = 3
+    Height = 13
+    Anchors = [akLeft, akRight, akBottom]
   end
   object Banco1Edit: TLabeledEdit
     Left = 14
@@ -32,6 +39,7 @@ object MainForm: TMainForm
     EditLabel.Height = 13
     EditLabel.Caption = 'Banco 1'
     TabOrder = 0
+    Text = 'C:\DBs\4377-POSTO.FDB'
   end
   object Banco2Edit: TLabeledEdit
     Left = 14
@@ -42,6 +50,7 @@ object MainForm: TMainForm
     EditLabel.Height = 13
     EditLabel.Caption = 'Banco 2'
     TabOrder = 2
+    Text = 'C:\DBs\4377-MATRIZ.FDB'
   end
   object Banco1Button: TBitBtn
     Left = 543
@@ -63,8 +72,9 @@ object MainForm: TMainForm
     Left = 18
     Top = 100
     Width = 651
-    Height = 325
+    Height = 341
     Anchors = [akLeft, akTop, akRight, akBottom]
+    ScrollBars = ssVertical
     TabOrder = 5
   end
   object OkButton: TBitBtn
@@ -94,6 +104,15 @@ object MainForm: TMainForm
     NumGlyphs = 2
     TabOrder = 4
     OnClick = OkButtonClick
+  end
+  object ProgressBar: TProgressBar
+    Left = 208
+    Top = 444
+    Width = 461
+    Height = 17
+    Anchors = [akLeft, akRight, akBottom]
+    Smooth = True
+    TabOrder = 6
   end
   object OpenDialog: TOpenDialog
     DefaultExt = 'fdb'
