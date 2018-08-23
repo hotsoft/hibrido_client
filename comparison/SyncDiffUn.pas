@@ -2,7 +2,8 @@ unit SyncDiffUn;
 
 interface
 
-uses Datasnap.DBClient, Classes, SysUtils, DB, StrUtils, IdHTTP, OmniXML, DIntegradorModuloWebHS;
+uses Datasnap.DBClient, Classes, SysUtils, DB, StrUtils, IdHTTP, OmniXML,
+     DIntegradorModuloWebHS, System.Generics.Collections, DIntegradorModuloWeb;
 
 type
   ISQLDiff = interface
@@ -39,12 +40,13 @@ type
       var aException: string): string;
     function getXMLDocument(const aURL: string): IXMLDocument;
     procedure SetFieldValue(aField: TField; var ValorCampo: string);
-    procedure ConvertXMLToCds(aDataIntegrador: TDataIntegradorModuloWebHSClass;
+    procedure ConvertXMLToCds(aDataIntegrador: TDataIntegradorModuloWeb;
       aXMLDocument: IXMLDocument; aClientDataset: TClientDataSet);
     procedure GetSettings;
     procedure CompareDBWithCloud(
-      aDataIntegrador: TDataIntegradorModuloWebHSClass);
+      aDataIntegradorClass: TDataIntegradorModuloWebHSClass);
     procedure TurnOffRequiredFields(aCds: TClientDataSet);
+    procedure CompareCds1WithCds2(aDataIntegrador: TDataIntegradorModuloWeb; aClientDataSetBase: TClientDataSet; const aIdRemotoList: string);
   public
     constructor Create(aDiff1, aDiff2: ISQLDiff);
     destructor Destroy; override;
@@ -104,12 +106,16 @@ var
   _cds: TClientDataSet;
 begin
   _cds := Self.FDiff1.GetDataFromSQL(SQLParametros);
-  if not _cds.IsEmpty then
-  begin
-    FEnderecoHibrido := acStrUtils.simpleDecrypt(_cds.FieldByName('EnderecoHibrido').AsString);
-    FAccessToken := _cds.FieldByName('AccessToken').AsString;
-    FNumSerie := _cds.FieldByName('NumSerie').AsString;
-    FVersaoExecutavel := _cds.FieldByName('VersaoExecutavel').AsString;
+  try
+    if not _cds.IsEmpty then
+    begin
+      FEnderecoHibrido := acStrUtils.simpleDecrypt(_cds.FieldByName('EnderecoHibrido').AsString);
+      FAccessToken := _cds.FieldByName('AccessToken').AsString;
+      FNumSerie := _cds.FieldByName('NumSerie').AsString;
+      FVersaoExecutavel := _cds.FieldByName('VersaoExecutavel').AsString;
+    end;
+  finally
+    _cds.Free;
   end;
 end;
 
@@ -127,7 +133,8 @@ procedure TSyncDiff.DoCompare;
 begin
   Self.ComparePaciente;
   Self.CompareRequisicao;
-
+  Self.Log(SEPARATOR, Self.GetLogSeparator);
+  Self.Log(SEPARATOR, Self.GetLogSeparator + ' Comparando dados com Firebird e MYSQL ' + Self.GetLogSeparator);
   Self.CompareDBWithCloud(TCargoWebData);
   Self.CompareDBWithCloud(TUsuarioWebData);
   Self.CompareDBWithCloud(TReagenteWebData);
@@ -316,17 +323,24 @@ var
 begin
   _sql := Format(aSQLBase, [SQLSincronizados]);
   _cds1 :=  FDiff1.GetDataFromSQL(_sql);
-  _cds1.First;
-  //primeiro coleta os ids
-  aIdRemotoList := Self.GetIdRemotoList(_cds1);
-  _sql := Format(SQLIdRemoto, [aIdRemotoList]);
-  _sql := Format(aSQLBase, [_sql]);
-  _cds2 := FDiff2.GetDataFromSQL(_sql);
-
-  Self.Log(Separator, Self.GetLogSeparator);
-  Self.Log(aTableName, 'Verificando...');
-  if Self.CheckDiffs(_cds1, _cds2, aPkName, aTableName) then
-    Self.Log(aTableName, 'Checagem efetuada sem erros');
+  try
+    _cds1.First;
+    //primeiro coleta os ids
+    aIdRemotoList := Self.GetIdRemotoList(_cds1);
+    _sql := Format(SQLIdRemoto, [aIdRemotoList]);
+    _sql := Format(aSQLBase, [_sql]);
+    _cds2 := FDiff2.GetDataFromSQL(_sql);
+    try
+      Self.Log(Separator, Self.GetLogSeparator);
+      Self.Log(aTableName, 'Verificando...');
+      if Self.CheckDiffs(_cds1, _cds2, aPkName, aTableName) then
+        Self.Log(aTableName, 'Checagem efetuada sem erros');
+    finally
+      _cds2.Free;
+    end;
+  finally
+    _cds1.Free;
+  end;
 end;
 
 procedure TSyncDiff.CompareDetailTableFromDB(const aDetailTableName, aPKName, aMasterIdRemotoList, aSQLBase: string; out aDetailIdRemotoList: string);
@@ -336,12 +350,20 @@ var
 begin
   _sql := Format(aSQLBase, [aMasterIdRemotoList]);
   _cds1 :=  FDiff1.GetDataFromSQL(_sql);
-  aDetailIdRemotoList := Self.GetIdRemotoList(_cds1);
-  _cds2 :=  FDiff2.GetDataFromSQL(_sql);
-  Self.Log(Separator, Self.GetLogSeparator);
-  Self.Log(aDetailTableName, 'Verificando...');
-  if Self.CheckDiffs(_cds1, _cds2, aPKName, aDetailTableName) then
-    Self.Log(aDetailTableName, 'Checagem efetuada sem erros');
+  try
+    aDetailIdRemotoList := Self.GetIdRemotoList(_cds1);
+    _cds2 :=  FDiff2.GetDataFromSQL(_sql);
+    try
+      Self.Log(Separator, Self.GetLogSeparator);
+      Self.Log(aDetailTableName, 'Verificando...');
+      if Self.CheckDiffs(_cds1, _cds2, aPKName, aDetailTableName) then
+        Self.Log(aDetailTableName, 'Checagem efetuada sem erros');
+    finally
+      _cds2.Free;
+    end;
+  finally
+    _cds1.Free;
+  end;
 end;
 
 procedure TSyncDiff.ComparePaciente;
@@ -421,9 +443,8 @@ begin
   end;
 end;
 
-procedure TSyncDiff.ConvertXMLToCds(aDataIntegrador: TDataIntegradorModuloWebHSClass; aXMLDocument: IXMLDocument; aClientDataset: TClientDataSet);
+procedure TSyncDiff.ConvertXMLToCds(aDataIntegrador: TDataIntegradorModuloWeb; aXMLDocument: IXMLDocument; aClientDataset: TClientDataSet);
 var
-  _DataWeb: TDataIntegradorModuloWebHS;
   _list: IXMLNodeList;
   _i, _j: integer;
   _node: IXMLNode;
@@ -432,37 +453,31 @@ var
   _field: TField;
   _fieldValue: string;
 begin
-  _DataWeb := aDataIntegrador.Create(nil);
-  try
-    _list := aXMLDocument.selectNodes('/objects/*');
-    _count := _list.length;
-    for _i := 0 to _count -1 do
+  _list := aXMLDocument.selectNodes('/objects/*');
+  _count := _list.length;
+  for _i := 0 to _count -1 do
+  begin
+    aClientDataset.Append;
+    _node := _list.item[_i];
+    for _j := 0 to _node.ChildNodes.Length - 1  do
     begin
-      aClientDataset.Append;
-      _node := _list.item[_i];
-      for _j := 0 to _node.ChildNodes.Length - 1  do
+      _FieldName := aDataIntegrador.translations.translateServerToPDV(_node.ChildNodes.Item[_j].NodeName, False);
+      _field := aClientDataset.FindField(_FieldName);
+      if (not _FieldName.IsEmpty) and (_field <> nil) and (_node.ChildNodes.Item[_j].Text <> EmptyStr) then
       begin
-        if (_node.ChildNodes.Item[_j].Attributes.Length > 0) and
-           (_node.ChildNodes.Item[_j].Attributes.Item[0].NodeName = 'type') and
-           (_node.ChildNodes.Item[_j].Attributes.Item[0].Text = 'array') then
-        begin
-          Self.Log('ARRAY=>>>', _node.ChildNodes.Item[_j].NodeName);
-        end
-        else
-        begin
-          _FieldName := _DataWeb.translations.translateServerToPDV(_node.ChildNodes.Item[_j].NodeName, False);
-          _field := aClientDataset.FindField(_FieldName);
-          if (not _FieldName.IsEmpty) and (_field <> nil) and (_node.ChildNodes.Item[_j].Text <> EmptyStr) then
-          begin
-            _fieldValue := _node.ChildNodes.Item[_j].Text;
-            Self.SetFieldValue(_Field, _fieldValue);
-          end;
-        end;
+        _fieldValue := _node.ChildNodes.Item[_j].Text;
+        Self.SetFieldValue(_Field, _fieldValue);
       end;
-      aClientDataset.Post;
     end;
-  finally
-    _DataWeb.Free;
+    try
+      aClientDataset.Post;
+    except
+      on E: Exception do
+      begin
+        aClientDataset.Cancel;
+        Self.Log(aDataIntegrador.nomeTabela, E.Message);
+      end;
+    end;
   end;
 end;
 
@@ -477,68 +492,72 @@ begin
   end;
 end;
 
-procedure TSyncDiff.CompareDBWithCloud(aDataIntegrador: TDataIntegradorModuloWebHSClass);
+
+procedure TSyncDiff.CompareCds1WithCds2(aDataIntegrador: TDataIntegradorModuloWeb; aClientDataSetBase: TClientDataSet; const aIdRemotoList: string);
 var
-  _DataWeb: TDataIntegradorModuloWebHS;
-  _cds1, _cds2: TClientDataSet;
-  _sql, _url, _idRemotoList: string;
+  _sql, _url: string;
+  _cds2: TClientDataSet;
   _xml: IXMLDocument;
 begin
-  Self.Log(Separator, Self.GetLogSeparator);
-  _DataWeb := aDataIntegrador.Create(nil);
+  //pega somente a estrutura
+  _sql := Format(SQLBaseDB, [0, aDataIntegrador.nomeTabela]);
+  _cds2 := Self.FDiff2.GetDataFromSQL(_sql);
   try
-    _sql := Format(SQLBaseDB, [50, _DataWeb.nomeTabela]);
-    _sql := _sql + 'WHERE (1=1) ' + SQLSincronizados;
-    _cds1 :=  FDiff2.GetDataFromSQL(_sql);
-    _idRemotoList := Self.GetIdRemotoList(_cds1);
-
-    //pega somente a estrutura
-    _sql := Format(SQLBaseDB, [0, _DataWeb.nomeTabela]);
-    _cds2 := Self.FDiff2.GetDataFromSQL(_sql);
     Self.TurnOffRequiredFields(_cds2);
 
-    _url := Self.FEnderecoHibrido + _DataWeb.nomePlural + '.xml?serie='+ FNumSerie + '&access_token=' + Self.FAccessToken + '&idlist=' + _idRemotoList;
+    _url := Self.FEnderecoHibrido + aDataIntegrador.nomePlural + '.xml?serie='+ FNumSerie + '&access_token=' + Self.FAccessToken + '&idlist=' + aIdRemotoList;
     _xml := Self.getXMLDocument(_url);
     if _xml <> nil then
       Self.ConvertXMLToCds(aDataIntegrador, _xml, _cds2);
+    if Self.CheckDiffs(aClientDataSetBase, _cds2, aDataIntegrador.nomePKLocal + ';SalvouRetaguarda', aDataIntegrador.nomeTabela) then
+      Self.Log(aDataIntegrador.nomeTabela, 'Checagem efetuada sem erros');
+  finally
+    _cds2.Free;
+  end;
+end;
+
+
+procedure TSyncDiff.CompareDBWithCloud(aDataIntegradorClass: TDataIntegradorModuloWebHSClass);
+var
+  _DataWeb: TDataIntegradorModuloWeb;
+  _cds1, _cdsDetailLocal: TClientDataSet;
+  _sql, _IdRemotoMasterList, _IdRemotoDetailsList: string;
+  _detail: TTabelaDetalhe;
+begin
+  Self.Log(Separator, Self.GetLogSeparator);
+  _DataWeb := aDataIntegradorClass.Create(nil);
+  try
     Self.Log(_DataWeb.nomeTabela , 'Verificando...');
-    if Self.CheckDiffs(_cds1, _cds2, _DataWeb.nomePKLocal, _DataWeb.nomeTabela) then
-      Self.Log(_DataWeb.nomeTabela, 'Checagem efetuada sem erros');
+
+    _sql := Format(SQLBaseDB, [50, _DataWeb.nomeTabela]);
+    _sql := _sql + 'WHERE (1=1) ' + SQLSincronizados;
+    _cds1 := FDiff2.GetDataFromSQL(_sql);
+    try
+      _IdRemotoMasterList := Self.GetIdRemotoList(_cds1);
+      Self.CompareCds1WithCds2(_DataWeb, _cds1, _IdRemotoMasterList);
+    finally
+      _cds1.Free;
+    end;
+
+    for _detail in _DataWeb.tabelasDetalhe do
+    begin
+      _sql := Format('SELECT detail.* FROM %s detail JOIN %s master ON detail.%s = master.%s WHERE master.idremoto IN (%s)',
+                                    [_detail.nomeTabela, _DataWeb.nomeTabela, _DataWeb.nomePKLocal, _DataWeb.nomePKLocal, _IdRemotoMasterList]);
+      _cdsDetailLocal := FDiff2.GetDataFromSQL(_sql);
+      try
+        _IdRemotoDetailsList := Self.GetIdRemotoList(_cdsDetailLocal);
+        Self.Log(Separator, '>>>> Verificando detalhe: ' + _detail.nomeTabela);
+        Self.CompareCds1WithCds2(_detail, _cdsDetailLocal, _IdRemotoMasterList);
+      finally
+        _cdsDetailLocal.Free;
+      end;
+    end;
+
   finally
     _DataWeb.Free;
   end;
 end;
 
-{
-procedure TSyncDiff.CompareResultados;
-var
-  _cds1, _cds2: TClientDataSet;
-  _sql, _url, _idRemotoList: string;
-  _xml: IXMLDocument;
-  _i: integer;
-begin
-  _sql := Format(SQLBaseResultadoAtributo, [50]);
-  _sql := _sql + 'WHERE (1=1) ' + SQLSincronizados;
-  _cds1 :=  FDiff2.GetDataFromSQL(_sql);
-  _idRemotoList := Self.GetIdRemotoList(_cds1);
-
-  //pega somente a estrutura
-  _sql := Format(SQLBaseResultadoAtributo, [0]);
-  _cds2 := Self.FDiff2.GetDataFromSQL(_sql);
-  for _i := 0 to _cds2.Fields.Count - 1 do
-  begin
-    _cds2.Fields[_i].Required := False;
-    _cds2.Fields[_i].ProviderFlags := [];
-  end;
-  _url := Self.FEnderecoHibrido + 'resultado_atributos.xml?serie='+ FNumSerie + '&access_token=' + Self.FAccessToken + '&idlist=' + _idRemotoList;
-  _xml := Self.getXMLDocument(_url);
-  if _xml <> nil then
-    Self.ConvertXMLToCds(TResultadoAtributoWebData, _xml, _cds2);
-  Self.Log('ResultadoAtributo', 'Verificando...');
-  if Self.CheckDiffs(_cds1, _cds2, 'IdResultadoAtributo', 'ResultadoAtributo') then
-    Self.Log('ResultadoAtributo', 'Checagem efetuada sem erros');
-end;
-}
 function TSyncDiff.getXMLFromServer(const aURL: string; var aException: string): string;
 var
   _Response: TStringStream;
@@ -583,6 +602,7 @@ function TSyncDiff.CheckDiffs(aCds1, aCds2: TClientDataSet; const aPkName, aTabl
 var
   _Field: TField;
   _WhiteListFields: TStringList;
+  _LogList: TStringList;
 begin
   Result := True;
   if aCds1.RecordCount <> aCds2.RecordCount then
@@ -608,19 +628,27 @@ begin
       end
       else
       begin
-        //Verificar campo a campo
-        for _Field in aCds1.Fields do
-        begin
-          if (_WhiteListFields.IndexOf(_Field.FieldName.ToUpper) = -1) and
-            (_Field.AsString <> aCds2.FieldByName(_Field.FieldName).AsString) then
-            begin
-              Result := False;
-              Self.Log(aTableName, Format('IdRemoto: %d, Field "%s" com valor diferente. Banco1: "%s"; Banco2: "%s"',
-                    [aCds1.FieldbyName('IdRemoto').asInteger,
-                     _Field.FieldName,
-                     _Field.AsString,
-                     aCds2.FieldByName(_Field.FieldName).AsString]));
-            end;
+        _LogList := TStringList.Create;
+        try
+          //Verificar campo a campo
+          for _Field in aCds1.Fields do
+          begin
+            if (_WhiteListFields.IndexOf(_Field.FieldName.ToUpper) = -1) and
+              (_Field.AsString <> aCds2.FieldByName(_Field.FieldName).AsString) then
+              begin
+                Result := False;
+                _LogList.Add(Format('Field "%s" com valor diferente. Banco1: "%s"; Banco2: "%s"',
+                  [_Field.FieldName,
+                   _Field.AsString,
+                   aCds2.FieldByName(_Field.FieldName).AsString]));
+              end;
+          end;
+
+          if (not Result) and (_LogList.Count > 0) then
+            Self.Log(aTableName,Format('IdRemoto: %d, %s', [aCds1.FieldbyName('IdRemoto').asInteger,
+              StringReplace(_LogList.Text, #13#10, EmptyStr, [rfReplaceAll])]));
+        finally
+          _LogList.Free;
         end;
       end;
       aCds1.Next;

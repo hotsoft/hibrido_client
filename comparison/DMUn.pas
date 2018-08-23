@@ -11,7 +11,6 @@ type
     SQLConnection: TSQLConnection;
     SQLQuery: TSQLQuery;
     DataSetProvider: TDataSetProvider;
-    ClientDataSet: TClientDataSet;
   private
     { Private declarations }
   public
@@ -42,10 +41,10 @@ end;
 
 function TDM.GetDataFromSQL(const aSQL: string): TClientDataSet;
 begin
-  ClientDataSet.Close;
-  ClientDataSet.CommandText := aSQL;
-  ClientDataSet.Open;
-  Result := ClientDataSet;
+  Result := TClientDataSet.Create(Self);
+  Result.CommandText := aSQL;
+  Result.ProviderName := 'DataSetProvider';
+  Result.Open;
 end;
 
 end.

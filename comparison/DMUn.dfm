@@ -58,11 +58,4 @@ object DM: TDM
     Left = 128
     Top = 96
   end
-  object ClientDataSet: TClientDataSet
-    Aggregates = <>
-    Params = <>
-    ProviderName = 'DataSetProvider'
-    Left = 216
-    Top = 96
-  end
 end

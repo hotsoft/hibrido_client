@@ -36,9 +36,9 @@ object MainForm: TMainForm
     Top = 22
     Width = 523
     Height = 21
-    EditLabel.Width = 38
+    EditLabel.Width = 27
     EditLabel.Height = 13
-    EditLabel.Caption = 'Banco 1'
+    EditLabel.Caption = 'Posto'
     TabOrder = 0
   end
   object Banco2Edit: TLabeledEdit
@@ -46,9 +46,9 @@ object MainForm: TMainForm
     Top = 62
     Width = 523
     Height = 21
-    EditLabel.Width = 38
+    EditLabel.Width = 29
     EditLabel.Height = 13
-    EditLabel.Caption = 'Banco 2'
+    EditLabel.Caption = 'Matriz'
     TabOrder = 2
   end
   object Banco1Button: TBitBtn
