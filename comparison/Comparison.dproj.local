@@ -11,11 +11,13 @@
     <Transaction>2018/08/20 11:00:39.000.016,=C:\repositorio\FW\Lib\UtilsUnit.pas</Transaction>
     <Transaction>2018/08/20 11:01:27.000.057,=C:\repositorio\FW\Lib\UtilsUnitGUI.pas</Transaction>
     <Transaction>2018/08/20 11:10:47.000.729,=C:\repositorio\hibrido_client\comparison\Unit1.pas</Transaction>
-    <Transaction>2018/08/20 11:11:25.000.890,C:\repositorio\hibrido_client\comparison\Unit1.dfm=C:\repositorio\hibrido_client\comparison\DMUn.dfm</Transaction>
     <Transaction>2018/08/20 11:11:25.000.890,C:\repositorio\hibrido_client\comparison\Unit1.pas=C:\repositorio\hibrido_client\comparison\DMUn.pas</Transaction>
+    <Transaction>2018/08/20 11:11:25.000.890,C:\repositorio\hibrido_client\comparison\Unit1.dfm=C:\repositorio\hibrido_client\comparison\DMUn.dfm</Transaction>
     <Transaction>2018/08/20 11:32:17.000.537,=C:\repositorio\hibrido_client\comparison\Unit1.pas</Transaction>
     <Transaction>2018/08/20 11:32:45.000.260,C:\repositorio\hibrido_client\comparison\SyncDiffUn.pas=C:\repositorio\hibrido_client\comparison\Unit1.pas</Transaction>
     <Transaction>2018/08/21 08:29:05.000.450,=C:\repositorio\Agendador\DLL\HibridoClient\SincronizaTabelasWebHCUn.pas</Transaction>
-    <Transaction>2018/08/21 08:35:52.011,C:\repositorio\Agendador\DLL\HibridoClient\SincronizaTabelasWebHCUn.pas=</Transaction>
+    <Transaction>2018/08/21 08:35:52.000.011,C:\repositorio\Agendador\DLL\HibridoClient\SincronizaTabelasWebHCUn.pas=</Transaction>
+    <Transaction>2018/08/21 16:20:49.000.107,=C:\repositorio\Agendador\DLL\HibridoClient\SincronizaTabelasWebHCUn.pas</Transaction>
+    <Transaction>2018/08/22 15:43:16.000.624,=C:\repositorio\repositorio\acStrUtils.pas</Transaction>
   </Transactions>
 </BorlandProject>

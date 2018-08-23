@@ -8,7 +8,7 @@ uses
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows,
   ISincronizacaoNotifierUnit, Data.SqlExpr,
-  Xml.XMLIntf, Winapi.ActiveX, XML.XMLDoc, System.Generics.Collections, HTTPApp, StrUtils,
+  Xml.XMLIntf, Winapi.ActiveX, XML.XMLDoc, System.Generics.Collections, HTTPApp, StrUtils, UtilsUnit,
   Soap.EncdDecd, Variants {$IFDEF VER250}, Data.DBXJSON, Data.DBXPlatform {$ENDIF} {$IFDEF VER300}, System.JSON {$ENDIF};
 
 type
@@ -2020,29 +2020,8 @@ begin
 end;
 
 function TDataIntegradorModuloWeb.BinaryFromBase64(const base64: string): TBytesStream;
-var
-  Input: TStringStream;
-  Output: TBytesStream;
 begin
-  Input := TStringStream.Create(base64, TEncoding.ASCII);
-  try
-    Output := TBytesStream.Create;
-    try
-      Soap.EncdDecd.DecodeStream(Input, Output);
-      Output.Position := 0;
-      Result := TBytesStream.Create;
-      try
-        Result.LoadFromStream(Output);
-      except
-        Result.Free;
-        raise;
-      end;
-    finally
-      Output.Free;
-    end;
-  finally
-    Input.Free;
-  end;
+  Result := UtilsUnit.BinaryFromBase64(base64);
 end;
 
 { TTabelaDetalhe }

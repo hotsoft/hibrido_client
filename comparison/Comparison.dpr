@@ -6,7 +6,9 @@ uses
   UtilsUnit in '..\..\FW\Lib\UtilsUnit.pas',
   UtilsUnitGUI in '..\..\FW\Lib\UtilsUnitGUI.pas',
   DMUn in 'DMUn.pas' {DM: TDataModule},
-  SyncDiffUn in 'SyncDiffUn.pas';
+  SyncDiffUn in 'SyncDiffUn.pas',
+  SincronizaTabelasWebHCUn in '..\..\Agendador\DLL\HibridoClient\SincronizaTabelasWebHCUn.pas',
+  acStrUtils in '..\..\repositorio\acStrUtils.pas';
 
 {$R *.res}
 
