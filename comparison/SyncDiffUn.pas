@@ -124,7 +124,7 @@ begin
   try
     if not _cds.IsEmpty then
     begin
-      FEnderecoHibrido := 'http://192.168.200.45:3010/api/';  //acStrUtils.simpleDecrypt(_cds.FieldByName('EnderecoHibrido').AsString);
+      FEnderecoHibrido := acStrUtils.simpleDecrypt(_cds.FieldByName('EnderecoHibrido').AsString);
       FAccessToken := _cds.FieldByName('AccessToken').AsString;
       FNumSerie := _cds.FieldByName('NumSerie').AsString;
       FVersaoExecutavel := _cds.FieldByName('VersaoExecutavel').AsString;
