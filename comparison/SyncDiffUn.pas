@@ -80,6 +80,23 @@ const
   SQLBaseDB = 'SELECT FIRST %d * FROM %s ';
 
   Separator = 'SEPARATOR';
+  URL = 'URL';
+
+  SQLFK =
+    ' SELECT'+
+    '    TRIM(detail_index_segments.rdb$field_name) AS field_name,'+
+    '    TRIM(master_relation_constraints.rdb$relation_name) AS reference_table,'+
+    '    TRIM(master_index_segments.rdb$field_name) AS fk_field'+
+    ' FROM'+
+    '    rdb$relation_constraints detail_relation_constraints'+
+    '    JOIN rdb$index_segments detail_index_segments ON detail_relation_constraints.rdb$index_name = detail_index_segments.rdb$index_name '+
+    '    JOIN rdb$ref_constraints ON detail_relation_constraints.rdb$constraint_name = rdb$ref_constraints.rdb$constraint_name '+ // Master indeksas
+    '    JOIN rdb$relation_constraints master_relation_constraints ON rdb$ref_constraints.rdb$const_name_uq = master_relation_constraints.rdb$constraint_name '+
+    '    JOIN rdb$index_segments master_index_segments ON master_relation_constraints.rdb$index_name = master_index_segments.rdb$index_name '+
+    ' WHERE'+
+    '    detail_relation_constraints.rdb$constraint_type = ''FOREIGN KEY'''+
+    '    AND detail_relation_constraints.rdb$relation_name = ''%s''';
+
 
 implementation
 
@@ -452,32 +469,52 @@ var
   _count: integer;
   _field: TField;
   _fieldValue: string;
+  _cdsFK, _cdsGetIdFK: TClientDataSet;
+  _sql: string;
 begin
-  _list := aXMLDocument.selectNodes('/objects/*');
-  _count := _list.length;
-  for _i := 0 to _count -1 do
-  begin
-    aClientDataset.Append;
-    _node := _list.item[_i];
-    for _j := 0 to _node.ChildNodes.Length - 1  do
+  _sql := Format(SQLFK, [aDataIntegrador.nomeTabela.ToUpper]);
+  _cdsFK := Self.FDiff2.GetDataFromSQL(_sql);
+  try
+    _list := aXMLDocument.selectNodes('/objects/*');
+    _count := _list.length;
+    for _i := 0 to _count -1 do
     begin
-      _FieldName := aDataIntegrador.translations.translateServerToPDV(_node.ChildNodes.Item[_j].NodeName, False);
-      _field := aClientDataset.FindField(_FieldName);
-      if (not _FieldName.IsEmpty) and (_field <> nil) and (_node.ChildNodes.Item[_j].Text <> EmptyStr) then
+      aClientDataset.Append;
+      _node := _list.item[_i];
+      for _j := 0 to _node.ChildNodes.Length - 1  do
       begin
-        _fieldValue := _node.ChildNodes.Item[_j].Text;
-        Self.SetFieldValue(_Field, _fieldValue);
+        _FieldName := aDataIntegrador.translations.translateServerToPDV(_node.ChildNodes.Item[_j].NodeName, False);
+        _field := aClientDataset.FindField(_FieldName);
+        if (not _FieldName.IsEmpty) and (_field <> nil) and (_node.ChildNodes.Item[_j].Text <> EmptyStr) then
+        begin
+          _fieldValue := _node.ChildNodes.Item[_j].Text;
+          if (not _cdsFK.IsEmpty) and _cdsFK.Locate('Field_Name', _Field.FieldName.ToUpper, [loCaseInsensitive]) then
+          begin
+            _sql := Format('SELECT %s FROM %s WHERE IdRemoto = %s', [_cdsFK.FieldByName('FK_Field').AsString, _cdsFk.FieldByName('Reference_Table').AsString, _FieldValue]);
+            _cdsGetIdFK := Self.FDiff2.GetDataFromSQL(_sql);
+            try
+              if not _cdsGetIdFK.IsEmpty then
+                _FieldValue := _cdsGetIdFK.Fields[0].AsString;
+            finally
+              _cdsGetIdFK.Free;
+            end;
+          end;
+
+          Self.SetFieldValue(_Field, _fieldValue);
+        end;
+      end;
+      try
+        aClientDataset.Post;
+      except
+        on E: Exception do
+        begin
+          aClientDataset.Cancel;
+          Self.Log(aDataIntegrador.nomeTabela, E.Message);
+        end;
       end;
     end;
-    try
-      aClientDataset.Post;
-    except
-      on E: Exception do
-      begin
-        aClientDataset.Cancel;
-        Self.Log(aDataIntegrador.nomeTabela, E.Message);
-      end;
-    end;
+  finally
+    _cdsFK.Free;
   end;
 end;
 
@@ -586,6 +623,7 @@ var
   _xmlContent, _Exception: string;
 begin
   Result := nil;
+  Self.log(URL, aURL);
   _xmlContent := Self.getXMLFromServer(aURL, _Exception);
   if not _xmlContent.IsEmpty then
   begin

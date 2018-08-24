@@ -85,7 +85,9 @@ end;
 
 procedure TMainForm.OnCompare(const aTableName, aDiff: string);
 begin
-  if aTableName.Equals(Separator) then
+  if aTableName.Equals(URL) then
+      Memo.Lines.Add('>>URL:' + aDiff)
+  else if aTableName.Equals(Separator) then
   begin
     if Memo.Lines.Count > 0 then
       Memo.Lines.Add(aDiff)
