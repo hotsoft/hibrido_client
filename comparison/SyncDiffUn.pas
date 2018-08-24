@@ -75,8 +75,6 @@ const
   SQLBaseRequisicaoTaxaExtra = 'SELECT rte.* FROM requisicaotaxaextra rte JOIN requisicao r ON rte.idrequisicao = r.idrequisicao WHERE r.idremoto in (%s) ORDER BY r.idremoto';
   SQLBaseDadoAdicionalMovimento = 'SELECT dam.* FROM dadoadicionalmovimento dam JOIN requisicao r ON dam.idrequisicao = r.idrequisicao WHERE r.idremoto in (%s) ORDER BY r.idremoto';
 
-  SQLBaseResultadoAtributo = 'SELECT FIRST %d * FROM ResultadoAtributo ';
-
   SQLBaseDB = 'SELECT FIRST %d * FROM %s ';
 
   Separator = 'SEPARATOR';
@@ -535,14 +533,21 @@ var
   _sql, _url: string;
   _cds2: TClientDataSet;
   _xml: IXMLDocument;
+  _StrList: TStringList;
 begin
   //pega somente a estrutura
   _sql := Format(SQLBaseDB, [0, aDataIntegrador.nomeTabela]);
   _cds2 := Self.FDiff2.GetDataFromSQL(_sql);
   try
     Self.TurnOffRequiredFields(_cds2);
-
-    _url := Self.FEnderecoHibrido + aDataIntegrador.nomePlural + '.xml?serie='+ FNumSerie + '&access_token=' + Self.FAccessToken + '&idlist=' + aIdRemotoList;
+    _StrList := TStringList.Create;
+    try
+      _StrList.Delimiter := ',';
+      _StrList.DelimitedText := aIdRemotoList;
+      _url := Self.FEnderecoHibrido + aDataIntegrador.nomePlural + '.xml?serie='+ FNumSerie + '&access_token=' + Self.FAccessToken + '&idlist=' + aIdRemotoList + '&limit=' + IntToStr(_strList.Count);
+    finally
+      _StrList.Free;
+    end;
     _xml := Self.getXMLDocument(_url);
     if _xml <> nil then
       Self.ConvertXMLToCds(aDataIntegrador, _xml, _cds2);
@@ -584,7 +589,7 @@ begin
       try
         _IdRemotoDetailsList := Self.GetIdRemotoList(_cdsDetailLocal);
         Self.Log(Separator, '>>>> Verificando detalhe: ' + _detail.nomeTabela);
-        Self.CompareCds1WithCds2(_detail, _cdsDetailLocal, _IdRemotoMasterList);
+        Self.CompareCds1WithCds2(_detail, _cdsDetailLocal, _IdRemotoDetailsList);
       finally
         _cdsDetailLocal.Free;
       end;
