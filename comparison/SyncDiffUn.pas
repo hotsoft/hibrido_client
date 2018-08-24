@@ -36,13 +36,13 @@ type
     procedure CompareDetailTableFromDB(const aDetailTableName, aPKName, aMasterIdRemotoList, aSQLBase: string; out aDetailIdRemotoList: string);
     procedure SetOnDiffRecord(const Value: TOnDiffRecord);
     function GetLogSeparator: string;
-    function getXMLFromServer(const aURL: string;
+    function getXMLFromServer(const aURL, aIdRemotoList: string;
       var aException: string): string;
-    function getXMLDocument(const aURL: string): IXMLDocument;
+    function getXMLDocument(const aURL, aIdRemotoList: string): IXMLDocument;
     procedure SetFieldValue(aField: TField; var ValorCampo: string);
     procedure ConvertXMLToCds(aDataIntegrador: TDataIntegradorModuloWeb;
       aXMLDocument: IXMLDocument; aClientDataset: TClientDataSet);
-    procedure GetSettings;
+    procedure GetSettings(aDiff:ISQLDiff);
     procedure CompareDBWithCloud(
       aDataIntegradorClass: TDataIntegradorModuloWebHSClass);
     procedure TurnOffRequiredFields(aCds: TClientDataSet);
@@ -107,7 +107,7 @@ begin
   FDiff1 := aDiff1;
   FDiff2 := aDiff2;
   Self.FHTTP := UtilsUnit.GetIdHttp;
-  Self.GetSettings;
+  Self.GetSettings(Self.FDiff2);
 end;
 
 destructor TSyncDiff.Destroy;
@@ -116,15 +116,15 @@ begin
   inherited;
 end;
 
-procedure TSyncDiff.GetSettings;
+procedure TSyncDiff.GetSettings(aDiff:ISQLDiff);
 var
   _cds: TClientDataSet;
 begin
-  _cds := Self.FDiff1.GetDataFromSQL(SQLParametros);
+  _cds := aDiff.GetDataFromSQL(SQLParametros);
   try
     if not _cds.IsEmpty then
     begin
-      FEnderecoHibrido := acStrUtils.simpleDecrypt(_cds.FieldByName('EnderecoHibrido').AsString);
+      FEnderecoHibrido := 'http://192.168.200.45:3010/api/';  //acStrUtils.simpleDecrypt(_cds.FieldByName('EnderecoHibrido').AsString);
       FAccessToken := _cds.FieldByName('AccessToken').AsString;
       FNumSerie := _cds.FieldByName('NumSerie').AsString;
       FVersaoExecutavel := _cds.FieldByName('VersaoExecutavel').AsString;
@@ -312,11 +312,15 @@ var
 begin
   Result := '-1';
   _strIds := TStringList.Create;
+  _strIds.Sorted := True;
+  _strIds.Duplicates := dupIgnore;
   try
     aCds.First;
     while not aCds.Eof do
     begin
-      _strIds.Add(aCds.FieldByName('IdRemoto').AsString);
+      if (_strIds.IndexOf(aCds.FieldByName('IdRemoto').asString) = -1) and
+         (aCds.FieldByName('IdRemoto').AsInteger > 0) then
+        _strIds.Add(aCds.FieldByName('IdRemoto').AsString);
       aCds.Next;
     end;
     if _strIds.Count > 0 then
@@ -544,11 +548,11 @@ begin
     try
       _StrList.Delimiter := ',';
       _StrList.DelimitedText := aIdRemotoList;
-      _url := Self.FEnderecoHibrido + aDataIntegrador.nomePlural + '.xml?serie='+ FNumSerie + '&access_token=' + Self.FAccessToken + '&idlist=' + aIdRemotoList + '&limit=' + IntToStr(_strList.Count);
+      _url := Self.FEnderecoHibrido + aDataIntegrador.nomePlural + '.xml?serie='+ FNumSerie + '&access_token=' + Self.FAccessToken; //+ '&idlist=' + aIdRemotoList + '&limit=' + IntToStr(_strList.Count);
     finally
       _StrList.Free;
     end;
-    _xml := Self.getXMLDocument(_url);
+    _xml := Self.getXMLDocument(_url, aIdRemotoList);
     if _xml <> nil then
       Self.ConvertXMLToCds(aDataIntegrador, _xml, _cds2);
     if Self.CheckDiffs(aClientDataSetBase, _cds2, aDataIntegrador.nomePKLocal + ';SalvouRetaguarda', aDataIntegrador.nomeTabela) then
@@ -600,7 +604,7 @@ begin
   end;
 end;
 
-function TSyncDiff.getXMLFromServer(const aURL: string; var aException: string): string;
+function TSyncDiff.getXMLFromServer(const aURL, aIdRemotoList: string; var aException: string): string;
 var
   _Response: TStringStream;
 begin
@@ -608,6 +612,9 @@ begin
   _Response := TStringStream.Create(EmptyStr, TEncoding.UTF8);
   try
     try
+      Self.FHTTP.Request.CustomHeaders.Clear;
+      Self.FHTTP.Request.CustomHeaders.FoldLines := False;
+      Self.FHTTP.Request.CustomHeaders.Add('Id-List:'+ aIdRemotoList);
       Self.FHTTP.Get(aURL, _Response);
       if FHTTP.ResponseCode = 204 then
         Result := EmptyStr
@@ -623,13 +630,13 @@ begin
   end;
 end;
 
-function TSyncDiff.getXMLDocument(const aURL: string): IXMLDocument;
+function TSyncDiff.getXMLDocument(const aURL, aIdRemotoList: string): IXMLDocument;
 var
   _xmlContent, _Exception: string;
 begin
   Result := nil;
   Self.log(URL, aURL);
-  _xmlContent := Self.getXMLFromServer(aURL, _Exception);
+  _xmlContent := Self.getXMLFromServer(aURL, aIdRemotoList, _Exception);
   if not _xmlContent.IsEmpty then
   begin
     Result := OmniXML.CreateXMLDoc;
