@@ -4,7 +4,7 @@ interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-  ISincronizacaoNotifierUnit, IdHTTP,  System.Generics.Collections, Data.DBXJSON;
+  ISincronizacaoNotifierUnit, IdHTTP,  System.Generics.Collections, Data.DBXJSON, Data.DBXCommon;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
@@ -160,6 +160,7 @@ var
   dimwName: string;
   sb: TServerToClientBlock;
   dmw:  TDataIntegradorModuloWebClass;
+  _Trans: TDBXTransaction;
 begin
   CoInitializeEx(nil, 0);
   try
@@ -175,7 +176,7 @@ begin
           if not Self.ShouldContinue then
             Break;
 
-          dm.startTransaction;
+          _Trans := dm.startTransaction;
           dimw := dmw.Create(nil);
           try
             try
@@ -184,18 +185,19 @@ begin
               dimw.notifier := Self.Fnotifier;
               dimw.dmPrincipal := dm;
               dimw.threadcontrol := Self.FThreadControl;
+              dimw.OnException := Self.OnException;
               dimw.CustomParams := Self.FCustomParams;
               dimw.DataLog := Self.FDataLog;
               dimw.getDadosAtualizados(http);
               if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
               inc(i);
-              dm.commit;
+              dm.commit(_Trans);
             except
               on E: Exception do
               begin
-                dm.rollback;
+                dm.rollback(_Trans);
                 if assigned(Self.FOnException) then
-                  Self.FOnException(haGet, dimw, E);
+                  Self.FOnException(haGet, dimw, E.ClassName, E.Message);
                 if assigned (self.FDataLog) then
                 begin
                   SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);

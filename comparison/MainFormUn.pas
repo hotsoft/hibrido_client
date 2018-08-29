@@ -64,20 +64,20 @@ var
   _SyncDiff: TSyncDiff;
 begin
   Memo.Clear;
+  DMBanco1 := nil;
+  DMBanco2 := nil;
   if Banco1Edit.Text <> EmptyStr then
     DMBanco1 := TDM.Create(Self, Banco1Edit.Text);
   if Banco2Edit.Text <> EmptyStr then
     DMBanco2 := TDM.Create(Self, Banco2Edit.Text);
-  if (DMBanco1 <> nil) and (DMBanco2 <> nil) then
-  begin
-    _SyncDiff := TSyncDiff.Create(DMBanco1, DMBanco2);
-    try
-      _SyncDiff.OnCompare := Self.OnCompare;
-      _SyncDiff.OnDiffRecord := Self.OnDiffRecord;
-      _SyncDiff.DoCompare;
-    finally
-      _SyncDiff.Free;
-    end;
+  _SyncDiff := TSyncDiff.Create(DMBanco1, DMBanco2);
+  try
+    _SyncDiff.OnCompare := Self.OnCompare;
+    _SyncDiff.OnDiffRecord := Self.OnDiffRecord;
+    _SyncDiff.DoCompare;
+    Memo.Lines.SaveToFile('./Compare.txt');
+  finally
+    _SyncDiff.Free;
   end;
   TableLabel.Caption := EmptyStr;
   ProgressBar.Position := 0;

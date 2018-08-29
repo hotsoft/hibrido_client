@@ -8,7 +8,7 @@ uses
   IdTCPClient, IdCoder, IdCoder3to4, IdCoderUUE, IdCoderXXE, Controls,
   IDataPrincipalUnit, idURI, System.Classes, Windows,
   ISincronizacaoNotifierUnit, Data.SqlExpr,
-  Xml.XMLIntf, Winapi.ActiveX, XML.XMLDoc, System.Generics.Collections, HTTPApp, StrUtils, UtilsUnit,
+  Xml.XMLIntf, Winapi.ActiveX, XML.XMLDoc, System.Generics.Collections, HTTPApp, StrUtils, UtilsUnit, Data.DBXCommon,
   Soap.EncdDecd, Variants {$IFDEF VER250}, Data.DBXJSON, Data.DBXPlatform {$ENDIF} {$IFDEF VER300}, System.JSON {$ENDIF};
 
 type
@@ -16,7 +16,7 @@ type
 
   TDataIntegradorModuloWeb = class;
 
-  TOnExceptionProcedure = procedure (AHttpAction: THttpAction; aIntegrador: TDataIntegradorModuloWeb; AException: Exception) of object;
+  TOnExceptionProcedure = procedure (AHttpAction: THttpAction; aIntegrador: TDataIntegradorModuloWeb; const AExceptionClassName, aExceptionMessage: string) of object;
 
   TJsonSetting = class
   private
@@ -156,6 +156,7 @@ type
     function CheckQryCommandTextForDuasVias(const aId: integer;  Integrador: TDataIntegradorModuloWeb): string;
     procedure UpdateVersionId(const aId, aLastVersionId: integer);
     procedure resyncRecord(const aId: integer);
+    function EscapeValueToServer(const aValue: string): string;
   protected
     FFieldList : TFieldDictionaryList;
     FDataLog: ILog;
@@ -175,7 +176,7 @@ type
     offset: integer;
     paramsType: TParamsType;
     FOnException: TOnExceptionProcedure;
-    FLastStream: string;
+    FLastStream: TStringStream;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
@@ -290,7 +291,9 @@ type
     procedure SetStatementForPost(const aStatement: string);
     property nomeFK: string read GetNomeFK write setNomeFK;
     procedure SetOnException(aOnException: TOnExceptionProcedure);
-    function getLastStream: string;
+    function getLastStream: TStringStream;
+    function UnEscapeValueFromServer(const aValue: string): string;
+    property OnException: TOnExceptionProcedure read FOnException write SetOnException;
   end;
 
   TDataIntegradorModuloWebClass = class of TDataIntegradorModuloWeb;
@@ -368,7 +371,8 @@ begin
     Self.Log(url);
 
     xmlContent := getRemoteXmlContent(url, http, erro);
-    Self.FLastStream := xmlContent;
+    Self.FLastStream.Clear;
+    Self.FLastStream.WriteString(xmlContent);
 
     if (erro <> EmptyStr) then
     begin
@@ -425,8 +429,9 @@ end;
 procedure TDataIntegradorModuloWeb.UpdateVersionId(const aId, aLastVersionId: integer);
 var
   qryVersionId: TSQLDataSet;
+  _trans: TDBXTransaction;
 begin
-  dmPrincipal.startTransaction;
+  _trans := dmPrincipal.startTransaction;
   try
     //se for o último registro do xml, atualizar o version_id
     qryVersionId := dmPrincipal.getQuery;
@@ -440,9 +445,9 @@ begin
     finally
       qryVersionId.Free;
     end;
-     dmPrincipal.commit;
+     dmPrincipal.commit(_trans);
   except
-    dmPrincipal.rollBack;
+    dmPrincipal.rollBack(_trans);
     raise;
   end;
 end;
@@ -461,6 +466,7 @@ end;
 function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode): boolean;
 var
   id: integer;
+  _Trans: TDBXTransaction;
 begin
   Result := False;
   if not singleton then
@@ -468,16 +474,15 @@ begin
     id := strToIntDef(node.selectSingleNode(dasherize(nomePKRemoto)).text, -1);
     if id >= 0 then
     begin
-      dmPrincipal.startTransaction;
+      _Trans := dmPrincipal.startTransaction;
       try
         Self.updateInsertRecord(node, id);
-        dmPrincipal.commit;
+        dmPrincipal.commit(_Trans);
         Result := True;
       except
         on E:Exception do
         begin
-          dmPrincipal.rollBack;
-          Self.log(Format('Erro ao importar a tabela "%s":', [self.nomeTabela]));
+          dmPrincipal.rollBack(_Trans);
           {$IFDEF HibridoClientDLL}
           UtilsUnitAgendadorUn.WriteRedLog(e.Message);
           {$ENDIF}
@@ -495,13 +500,23 @@ end;
 procedure TDataIntegradorModuloWeb.resyncRecord(const aId: integer);
 var
   qry: TSQLDataSet;
+  _Trans: TDBXTransaction;
 begin
   qry := DMPrincipal.getQuery;
   try
     if aId > 0 then
     begin
-      qry.CommandText := 'UPDATE ' + Self.nomeTabela + ' Set SalvouRetaguarda = ''N'' ' + Self.CheckQryCommandTextForDuasVias(aId, Self);
-      ExecQuery(qry);
+      _trans := dmPrincipal.startTransaction;
+      try
+        qry.CommandText := 'UPDATE ' + Self.nomeTabela + ' Set SalvouRetaguarda = ''N'' ' + Self.CheckQryCommandTextForDuasVias(aId, Self);
+        ExecQuery(qry);
+        dmPrincipal.commit(_Trans);
+      except
+        on E:Exception do
+        begin
+          dmPrincipal.rollback(_Trans);
+        end;
+      end;
     end;
   finally
     qry.Free;
@@ -562,6 +577,15 @@ begin
   FOnException := aOnException;
 end;
 
+function TDataIntegradorModuloWeb.UnEscapeValueFromServer(const aValue: string): string;
+begin
+  Result := aValue;
+  Result := StringReplace(Result, '\\', '\', [rfReplaceAll]);
+  Result := StringReplace(Result, '\"', '"', [rfReplaceAll]);
+  Result := StringReplace(Result, '\n', #13#10, [rfReplaceAll]);
+  Result := StringReplace(Result, '\t', #9, [rfReplaceAll]);
+end;
+
 procedure TDataIntegradorModuloWeb.SetQueryParameters(qry: TSQLDataSet; DMLOperation: TDMLOperation; node: IXMLDomNode;  ChildrenNodes: TXMLNodeDictionary;  Integrador: TDataIntegradorModuloWeb);
 var
   i: integer;
@@ -596,7 +620,7 @@ begin
           if Field <> nil then
           begin
             case Field.DataType of
-              ftString, ftMemo: qry.ParamByName(name).AsString := ValorCampo;
+              ftString, ftMemo: qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(ValorCampo);
               ftInteger: qry.ParamByName(name).AsInteger := StrToInt(ValorCampo);
               ftLargeint: qry.ParamByName(name).AsLargeInt := StrToInt(ValorCampo);
               ftDateTime, ftTimeStamp:
@@ -624,7 +648,7 @@ begin
                 qry.ParamByName(name).LoadFromStream(self.BinaryFromBase64(ValorCampo), ftBlob);
               end
             else
-              qry.ParamByName(name).AsString := ValorCampo;
+              qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(ValorCampo);
             end;
           end;
         end;
@@ -1191,6 +1215,15 @@ begin
   end;
 end;
 
+function TDataIntegradorModuloWeb.EscapeValueToServer(const aValue: string): string;
+begin
+  Result := aValue;
+  Result := StringReplace(Result, '\', '\\', [rfReplaceAll]);
+  Result := StringReplace(Result, '"', '\"', [rfReplaceAll]);
+  Result := StringReplace(Result, #13#10, '\n', [rfReplaceAll]);
+  Result := StringReplace(Result, #9, '\t', [rfReplaceAll]);
+end;
+
 function TDataIntegradorModuloWeb.getJsonObject(aDs: TDataSet;
  aTranslations: TTranslationSet; aDict: TStringDictionary; aNestedAttribute: string = ''): TJsonObject;
 var
@@ -1212,7 +1245,7 @@ begin
           aDs.fieldByName(aTranslations.get(i).pdv), aNestedAttribute, aTranslations.get(i).fkName, fieldValue);
       if not JsonObjectHasPair(nome, Result) then
       begin
-        StringUTF8 := Trim(valor);
+        StringUTF8 := Self.EscapeValueToServer(valor);
         if Self.encodeJsonValues then
         begin
           if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
@@ -1229,7 +1262,7 @@ begin
   end;
 end;
 
-function TDataIntegradorModuloWeb.getLastStream: string;
+function TDataIntegradorModuloWeb.getLastStream: TStringStream;
 begin
   Result := FLastStream;
 end;
@@ -1326,8 +1359,8 @@ begin
     try
       Self.addDetailsToJsonList(DetailList, ds);
       Self.addMasterTableToJson(DetailList, ds, pStream);
-      Self.FLastStream := pStream.DataString;
       result := http.Post(url, pStream);
+      Self.FLastStream.LoadFromStream(pStream);
     finally
       pStream.Free;
       DetailList.Free;
@@ -1380,6 +1413,7 @@ var
   url: string;
   criouHttp: boolean;
   log: string;
+  _Trans: TDBXTransaction;
 begin
   Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
   salvou := false;
@@ -1439,14 +1473,14 @@ begin
           //existia no remoto e era outro registro neste banco de dados.
           if not gerenciaRedirecionamentos(ds.fieldByName(nomePKLocal).AsInteger, idRemoto) then
           begin
-            dmPrincipal.startTransaction;
+            _Trans := dmPrincipal.startTransaction;
             try
               dmPrincipal.execSQL(txtUpdate);
-              dmPrincipal.commit;
+              dmPrincipal.commit(_Trans);
             except
               on E: Exception do
               begin
-                dmPrincipal.rollback;
+                dmPrincipal.rollback(_Trans);
                 raise;
               end;
             end;
@@ -1668,7 +1702,7 @@ begin
           on e: Exception do
           begin
             if assigned(Self.FOnException) then
-              Self.FOnException(haPost, Self, E);
+              Self.FOnException(haPost, Self, E.ClassName, E.Message);
 
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
             if stopOnPostRecordError then
@@ -1806,12 +1840,13 @@ begin
   useMultipartParams := false;
   paramsType := ptParam;
   FstopOnPostRecordError := true;
-  FStopOnGetRecordError := False;
+  FStopOnGetRecordError := True;
   Self.encodeJsonValues := False;
   translations.add('id', 'idremoto');
   tabelasDetalhe := TTabelaDetalheList.Create(True);
   tabelasDependentes := TTabelaDependenteList.Create(True);
   Self.FStatementForPost := EmptyStr;
+  Self.FLastStream := TStringStream.Create('', TEncoding.UTF8);
 end;
 
 destructor TDataIntegradorModuloWeb.Destroy;
@@ -1826,6 +1861,7 @@ begin
      Dependente.Free;
   if Self.FFieldList <> nil then
     FreeAndNil(Self.FFieldList);
+  Self.FLastStream.Free;
   inherited;
 end;
 
