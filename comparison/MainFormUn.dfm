@@ -50,6 +50,7 @@ object MainForm: TMainForm
     EditLabel.Height = 13
     EditLabel.Caption = 'Matriz'
     TabOrder = 2
+    Text = 'C:\DBs\TARDE_24-08-2018.FDB'
   end
   object Banco1Button: TBitBtn
     Left = 543
@@ -120,7 +121,7 @@ object MainForm: TMainForm
     OnClick = Banco2ButtonClick
   end
   object Memo: TMemo
-    Left = 18
+    Left = 14
     Top = 100
     Width = 651
     Height = 341
@@ -160,7 +161,7 @@ object MainForm: TMainForm
     OnClick = OkButtonClick
   end
   object ProgressBar: TProgressBar
-    Left = 208
+    Left = 204
     Top = 444
     Width = 461
     Height = 17

@@ -15,3 +15,5 @@ Temp
 *.dll
 *.vlb
 *.dcu
+*.txt
+*.xml

@@ -9,6 +9,9 @@
         <Projects Include="..\..\Agendador\DLL\HibridoClient\HibridoClient.dproj">
             <Dependencies/>
         </Projects>
+        <Projects Include="..\..\Agendador\Spartacus.dproj">
+            <Dependencies/>
+        </Projects>
     </ItemGroup>
     <ProjectExtensions>
         <Borland.Personality>Default.Personality.12</Borland.Personality>
@@ -35,14 +38,23 @@
     <Target Name="HibridoClient:Make">
         <MSBuild Projects="..\..\Agendador\DLL\HibridoClient\HibridoClient.dproj" Targets="Make"/>
     </Target>
+    <Target Name="Spartacus">
+        <MSBuild Projects="..\..\Agendador\Spartacus.dproj"/>
+    </Target>
+    <Target Name="Spartacus:Clean">
+        <MSBuild Projects="..\..\Agendador\Spartacus.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Spartacus:Make">
+        <MSBuild Projects="..\..\Agendador\Spartacus.dproj" Targets="Make"/>
+    </Target>
     <Target Name="Build">
-        <CallTarget Targets="Comparison;HibridoClient"/>
+        <CallTarget Targets="Comparison;HibridoClient;Spartacus"/>
     </Target>
     <Target Name="Clean">
-        <CallTarget Targets="Comparison:Clean;HibridoClient:Clean"/>
+        <CallTarget Targets="Comparison:Clean;HibridoClient:Clean;Spartacus:Clean"/>
     </Target>
     <Target Name="Make">
-        <CallTarget Targets="Comparison:Make;HibridoClient:Make"/>
+        <CallTarget Targets="Comparison:Make;HibridoClient:Make;Spartacus:Make"/>
     </Target>
     <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
 </Project>

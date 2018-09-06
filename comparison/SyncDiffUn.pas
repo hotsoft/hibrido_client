@@ -39,7 +39,7 @@ type
     function getXMLFromServer(const aURL, aIdRemotoList: string;
       var aException: string): string;
     function getXMLDocument(const aURL, aIdRemotoList: string): IXMLDocument;
-    procedure SetFieldValue(aField: TField; var ValorCampo: string);
+    procedure SetFieldValue(aDataIntegrador: TDataIntegradorModuloWeb;  aField: TField; var ValorCampo: string);
     procedure ConvertXMLToCds(aDataIntegrador: TDataIntegradorModuloWeb;
       aXMLDocument: IXMLDocument; aClientDataset: TClientDataSet);
     procedure GetSettings(aDiff:ISQLDiff);
@@ -47,6 +47,7 @@ type
       aDataIntegradorClass: TDataIntegradorModuloWebHSClass);
     procedure TurnOffRequiredFields(aCds: TClientDataSet);
     procedure CompareCds1WithCds2(aDataIntegrador: TDataIntegradorModuloWeb; aClientDataSetBase: TClientDataSet; const aIdRemotoList: string);
+    function UnEscapeValueFromServer(aDataIntegrador: TDataIntegradorModuloWeb; const aValue: string): string;
   public
     constructor Create(aDiff1, aDiff2: ISQLDiff);
     destructor Destroy; override;
@@ -146,156 +147,163 @@ end;
 
 procedure TSyncDiff.DoCompare;
 begin
-  Self.ComparePaciente;
-  Self.CompareRequisicao;
+  if (FDiff1 <> nil) and (FDiff2 <> nil) then
+  begin
+    Self.ComparePaciente;
+    Self.CompareRequisicao;
+  end;
+
   Self.Log(SEPARATOR, Self.GetLogSeparator);
   Self.Log(SEPARATOR, Self.GetLogSeparator + ' Comparando dados com Firebird e MYSQL ' + Self.GetLogSeparator);
-  Self.CompareDBWithCloud(TCargoWebData);
-  Self.CompareDBWithCloud(TUsuarioWebData);
-  Self.CompareDBWithCloud(TReagenteWebData);
-  Self.CompareDBWithCloud(TXfilterDefWebData);
-  Self.CompareDBWithCloud(TXfilterDefDetailWebData);
-  Self.CompareDBWithCloud(TRBFolderWebData);
-  Self.CompareDBWithCloud(TRBItemWebData);
-  Self.CompareDBWithCloud(TTipoRelatorioWebData);
-  Self.CompareDBWithCloud(TRelatorioWebData);
-  Self.CompareDBWithCloud(TTipoRecursoWebData);
-  Self.CompareDBWithCloud(TDominioWebData);
-  Self.CompareDBWithCloud(TRecursoWebData);
-  Self.CompareDBWithCloud(TAcaoWebData);
-  Self.CompareDBWithCloud(TPermissaoSistemaWebData);
-  Self.CompareDBWithCloud(TGrupoWebData);
-  Self.CompareDBWithCloud(TPermissaoSistemaGrupoWebData);
-  Self.CompareDBWithCloud(TDireitoUsoWebData);
-  Self.CompareDBWithCloud(TUsuarioRelatorioWebData);
-  Self.CompareDBWithCloud(TGrupoUsuarioWebData);
-  Self.CompareDBWithCloud(TTipoOperacaoCaixaWebData);
-  Self.CompareDBWithCloud(TMaterialBiologicoWebData);
-  Self.CompareDBWithCloud(TMaterialBiologicoCompostoWebData);
-  Self.CompareDBWithCloud(TConservanteWebData);
-  Self.CompareDBWithCloud(TEmpresaWebData);
-  Self.CompareDBWithCloud(TGrupoLocalWebData);
-  Self.CompareDBWithCloud(TLocalAtendimentoWebData);
-  Self.CompareDBWithCloud(TTipoDadoAdicionalWebData);
-  Self.CompareDBWithCloud(TFornecedorWebData);
-  Self.CompareDBWithCloud(TTipoMaterialConsumoWebData);
-  Self.CompareDBWithCloud(TMaterialConsumoWebData);
-  Self.CompareDBWithCloud(TMetodoExameWebData);
-  Self.CompareDBWithCloud(TRecomendacaoTecnicaWebData);
-  Self.CompareDBWithCloud(TBancadaWebData);
-  Self.CompareDBWithCloud(TDriverWebData);
-  Self.CompareDBWithCloud(TTipoInstrumentoWebData);
-  Self.CompareDBWithCloud(TMaterialTipoInstrumentoWebData);
-  Self.CompareDBWithCloud(TLaboratorioWebData);
-  Self.CompareDBWithCloud(TMarcacaoWebData);
-  Self.CompareDBWithCloud(TTipoExameWebData);
-  Self.CompareDBWithCloud(TTipoExameMaterialBiologicoWebData);
-  Self.CompareDBWithCloud(TVersaoExameWebData);
-  Self.CompareDBWithCloud(TVersaoExameLocalAtendimentoWebData);
-  Self.CompareDBWithCloud(TDadoAdicionalVersaoExameWebData);
-  Self.CompareDBWithCloud(TMaterialConsumoExameWebData);
-  Self.CompareDBWithCloud(TParametroVersaoExameWebData);
-  Self.CompareDBWithCloud(TAtributoExameWebData);
-  Self.CompareDBWithCloud(TValoresReferenciaWebData);
-  Self.CompareDBWithCloud(TAgrupamentoAmostraWebData);
-  Self.CompareDBWithCloud(TVersaoAgrupamentoWebData);
-  Self.CompareDBWithCloud(TResultadoPadraoWebData);
-  Self.CompareDBWithCloud(TPerfilWebData);
-  Self.CompareDBWithCloud(TObservacaoResultadoWebData);
-  Self.CompareDBWithCloud(TPrioridadeColetaWebData);
-  Self.CompareDBWithCloud(TTipoInstrumentoFlagWebData);
-  Self.CompareDBWithCloud(TAntibioticoWebData);
-  Self.CompareDBWithCloud(TExameTipoInstrumentoWebData);
-  Self.CompareDBWithCloud(TAtributoExameTipoInstrumentoWebData);
-  Self.CompareDBWithCloud(TComposicaoExameWebData);
-  Self.CompareDBWithCloud(TInstrumentoWebData);
-  Self.CompareDBWithCloud(TExameTipoInstrumentoFlagWebData);
-  Self.CompareDBWithCloud(TPeriodoIndicadorWebData);
-  Self.CompareDBWithCloud(TIndicadorLocalAtendimentoWebData);
-  Self.CompareDBWithCloud(TLocalIndicadorlocalWebData);
-  Self.CompareDBWithCloud(TPeriodoIndicadorLocalWebData);
-  Self.CompareDBWithCloud(TParametroLaboratorioWebData);
-  Self.CompareDBWithCloud(TPorteProcedimentoWebData);
-  Self.CompareDBWithCloud(THonorarioWebData);
-  Self.CompareDBWithCloud(TTipoParasitaWebData);
-  Self.CompareDBWithCloud(TProcedimentoMedicoWebData);
-  Self.CompareDBWithCloud(THonorarioExameWebData);
-  Self.CompareDBWithCloud(TParasitaWebData);
-  Self.CompareDBWithCloud(TGermeWebData);
-  Self.CompareDBWithCloud(TApoiadoWebData);
-  Self.CompareDBWithCloud(TArquivoEnvioWebData);
-  Self.CompareDBWithCloud(TArquivoRecebimentoWebData);
-  Self.CompareDBWithCloud(TColetorWebData);
-  //Self.CompareDBWithCloud(TResponsavelTecnicoWebData);
-  Self.CompareDBWithCloud(TTipoLaudoWebData);
-  Self.CompareDBWithCloud(TRelatorioTipoLaudoWebData);
-  Self.CompareDBWithCloud(TEspecialidadeWebData);
-  Self.CompareDBWithCloud(TOperadoraWebData);
-  Self.CompareDBWithCloud(TConvenioWebData);
-  //Self.CompareDBWithCloud(TConvenioIntegracaoWebData);
-  Self.CompareDBWithCloud(TParametroConvenioWebData);
-  Self.CompareDBWithCloud(TEstabelecimentoSaudeWebData);
-  Self.CompareDBWithCloud(TConvenioEstabelecimentoSaudeWebData);
-  Self.CompareDBWithCloud(TMedicoWebData);
-  Self.CompareDBWithCloud(TCredencialWebData);
-  Self.CompareDBWithCloud(TTipoLaudoMedicoWebData);
-  Self.CompareDBWithCloud(TMedicoApoiadoWebData);
-  Self.CompareDBWithCloud(TPacienteWebData);
-  Self.CompareDBWithCloud(TPacienteApoiadoWebData);
-  Self.CompareDBWithCloud(TDadoAdicionalPacienteWebData);
-  Self.CompareDBWithCloud(TConfiguracaoGestaoLaudoWebData);
-  Self.CompareDBWithCloud(TLaudosGestaoLaudoWebData);
-  Self.CompareDBWithCloud(TContratoConvenioWebData);
-  Self.CompareDBWithCloud(TContratoValorIndividualWebData);
-  Self.CompareDBWithCloud(TParametroContratoConvenioWebData);
-  Self.CompareDBWithCloud(TTaxaExtraWebData);
-  Self.CompareDBWithCloud(TAntibioticoTipoInstrumentoWebData);
-  Self.CompareDBWithCloud(TConfiguracaoIpeWebData);
-  Self.CompareDBWithCloud(TGermeTipoInstrumentoWebData);
-  Self.CompareDBWithCloud(TCompExameApoiadoWebData);
-  Self.CompareDBWithCloud(TCompAtributoApoiadoWebData);
-  Self.CompareDBWithCloud(TOperadoraTelefoniaWebData);
-  Self.CompareDBWithCloud(TCompConvenioApoiadoWebData);
-  Self.CompareDBWithCloud(TCompDadoAdicionalApoiadoWebData);
-  Self.CompareDBWithCloud(TCompLocalApoiadoWebData);
-  Self.CompareDBWithCloud(TCompMaterialApoiadoWebData);
-  Self.CompareDBWithCloud(TUnidadeMedidaWebData);
-  Self.CompareDBWithCloud(TIndicadorMarcacaoWebData);
-  Self.CompareDBWithCloud(TMarcacaoIndicadorMarcacaoWebData);
-  Self.CompareDBWithCloud(TExameRelacionadoWebData);
-  Self.CompareDBWithCloud(TCaixaWebData);
-  Self.CompareDBWithCloud(TRequisicaoApoiadoWebData);
-  Self.CompareDBWithCloud(TLoteFaturaWebData);
-  Self.CompareDBWithCloud(TFaturaWebData);
-  Self.CompareDBWithCloud(TLoteAmostrasWebData);
-  Self.CompareDBWithCloud(TRequisicaoWebData); //requisicao, exame, amostra, exameamostra, laudorequisicao, examelaudorequisicao
-  Self.CompareDBWithCloud(TAmostraReplicadaWebData);
-  Self.CompareDBWithCloud(TExameLaudoRequisicaoWebData);
-  Self.CompareDBWithCloud(TExameAmostraWebData);
-  Self.CompareDBWithCloud(TResultadoGermeWebData);
-  Self.CompareDBWithCloud(TResultadoAtributoWebData);
-  Self.CompareDBWithCloud(TResultadoMicrobiologiaWebData);
-  Self.CompareDBWithCloud(TResultadoParasitologiaWebData);
-  Self.CompareDBWithCloud(TDadoAdicionalMovimentoWebData);
-  Self.CompareDBWithCloud(TDadoAdicionalMovimentoExameWebData);
-  Self.CompareDBWithCloud(TMovimentoCaixaWebData);
-  Self.CompareDBWithCloud(TRequisicaoTaxaExtraWebData);
-  Self.CompareDBWithCloud(TCancelamentoApoiadoWebData);
-  Self.CompareDBWithCloud(TReciboWebData);
-  Self.CompareDBWithCloud(TLoteLaudoWebData);
-  Self.CompareDBWithCloud(TExameFlagWebData);
-  Self.CompareDBWithCloud(TBandejaWebData);  //bandeja, bandejaamostra
-  Self.CompareDBWithCloud(THistoricoInstrumentoWebData);
-  Self.CompareDBWithCloud(THistoricoImagemInstrumentoWebData);
-  Self.CompareDBWithCloud(THistoricoResultadoWebData);
-  Self.CompareDBWithCloud(TOrcamentoWebData);
-  Self.CompareDBWithCloud(TDadoAdicionalMovimentoExameWebData);
-  Self.CompareDBWithCloud(TExameLoteLaudoWebData);
-  Self.CompareDBWithCloud(TDadoAdicionalApoiadoWebData);
-  Self.CompareDBWithCloud(TParametroUsuarioWebData);
-  Self.CompareDBWithCloud(TAtualizaLaudoPublicador);
-  Self.CompareDBWithCloud(TAtualizaExamePublicador);
-  Self.CompareDBWithCloud(TPendenciaExameLaudoWebData);
+  if (FDiff2 <> nil) then
+  begin
+    Self.CompareDBWithCloud(TCargoWebData);
+    Self.CompareDBWithCloud(TUsuarioWebData);
+    Self.CompareDBWithCloud(TReagenteWebData);
+    Self.CompareDBWithCloud(TXfilterDefWebData);
+    Self.CompareDBWithCloud(TXfilterDefDetailWebData);
+    Self.CompareDBWithCloud(TRBFolderWebData);
+    Self.CompareDBWithCloud(TRBItemWebData);
+    Self.CompareDBWithCloud(TTipoRelatorioWebData);
+    Self.CompareDBWithCloud(TRelatorioWebData);
+    Self.CompareDBWithCloud(TTipoRecursoWebData);
+    Self.CompareDBWithCloud(TDominioWebData);
+    Self.CompareDBWithCloud(TRecursoWebData);
+    Self.CompareDBWithCloud(TAcaoWebData);
+    Self.CompareDBWithCloud(TPermissaoSistemaWebData);
+    Self.CompareDBWithCloud(TGrupoWebData);
+    Self.CompareDBWithCloud(TPermissaoSistemaGrupoWebData);
+    Self.CompareDBWithCloud(TDireitoUsoWebData);
+    Self.CompareDBWithCloud(TUsuarioRelatorioWebData);
+    Self.CompareDBWithCloud(TGrupoUsuarioWebData);
+    Self.CompareDBWithCloud(TTipoOperacaoCaixaWebData);
+    Self.CompareDBWithCloud(TMaterialBiologicoWebData);
+    Self.CompareDBWithCloud(TMaterialBiologicoCompostoWebData);
+    Self.CompareDBWithCloud(TConservanteWebData);
+    Self.CompareDBWithCloud(TEmpresaWebData);
+    Self.CompareDBWithCloud(TGrupoLocalWebData);
+    Self.CompareDBWithCloud(TLocalAtendimentoWebData);
+    Self.CompareDBWithCloud(TTipoDadoAdicionalWebData);
+    Self.CompareDBWithCloud(TFornecedorWebData);
+    Self.CompareDBWithCloud(TTipoMaterialConsumoWebData);
+    Self.CompareDBWithCloud(TMaterialConsumoWebData);
+    Self.CompareDBWithCloud(TMetodoExameWebData);
+    Self.CompareDBWithCloud(TRecomendacaoTecnicaWebData);
+    Self.CompareDBWithCloud(TBancadaWebData);
+    Self.CompareDBWithCloud(TDriverWebData);
+    Self.CompareDBWithCloud(TTipoInstrumentoWebData);
+    Self.CompareDBWithCloud(TMaterialTipoInstrumentoWebData);
+    Self.CompareDBWithCloud(TLaboratorioWebData);
+    Self.CompareDBWithCloud(TMarcacaoWebData);
+    Self.CompareDBWithCloud(TTipoExameWebData);
+    Self.CompareDBWithCloud(TTipoExameMaterialBiologicoWebData);
+    Self.CompareDBWithCloud(TVersaoExameWebData);
+    Self.CompareDBWithCloud(TVersaoExameLocalAtendimentoWebData);
+    Self.CompareDBWithCloud(TDadoAdicionalVersaoExameWebData);
+    Self.CompareDBWithCloud(TMaterialConsumoExameWebData);
+    Self.CompareDBWithCloud(TParametroVersaoExameWebData);
+    Self.CompareDBWithCloud(TAtributoExameWebData);
+    Self.CompareDBWithCloud(TValoresReferenciaWebData);
+    Self.CompareDBWithCloud(TAgrupamentoAmostraWebData);
+    Self.CompareDBWithCloud(TVersaoAgrupamentoWebData);
+    Self.CompareDBWithCloud(TResultadoPadraoWebData);
+    Self.CompareDBWithCloud(TPerfilWebData);
+    Self.CompareDBWithCloud(TObservacaoResultadoWebData);
+    Self.CompareDBWithCloud(TPrioridadeColetaWebData);
+    Self.CompareDBWithCloud(TTipoInstrumentoFlagWebData);
+    Self.CompareDBWithCloud(TAntibioticoWebData);
+    Self.CompareDBWithCloud(TExameTipoInstrumentoWebData);
+    Self.CompareDBWithCloud(TAtributoExameTipoInstrumentoWebData);
+    Self.CompareDBWithCloud(TComposicaoExameWebData);
+    Self.CompareDBWithCloud(TInstrumentoWebData);
+    Self.CompareDBWithCloud(TExameTipoInstrumentoFlagWebData);
+    Self.CompareDBWithCloud(TPeriodoIndicadorWebData);
+    Self.CompareDBWithCloud(TIndicadorLocalAtendimentoWebData);
+    Self.CompareDBWithCloud(TLocalIndicadorlocalWebData);
+    Self.CompareDBWithCloud(TPeriodoIndicadorLocalWebData);
+    Self.CompareDBWithCloud(TParametroLaboratorioWebData);
+    Self.CompareDBWithCloud(TPorteProcedimentoWebData);
+    Self.CompareDBWithCloud(THonorarioWebData);
+    Self.CompareDBWithCloud(TTipoParasitaWebData);
+    Self.CompareDBWithCloud(TProcedimentoMedicoWebData);
+    Self.CompareDBWithCloud(THonorarioExameWebData);
+    Self.CompareDBWithCloud(TParasitaWebData);
+    Self.CompareDBWithCloud(TGermeWebData);
+    Self.CompareDBWithCloud(TApoiadoWebData);
+    Self.CompareDBWithCloud(TArquivoEnvioWebData);
+    Self.CompareDBWithCloud(TArquivoRecebimentoWebData);
+    Self.CompareDBWithCloud(TColetorWebData);
+    //Self.CompareDBWithCloud(TResponsavelTecnicoWebData);
+    Self.CompareDBWithCloud(TTipoLaudoWebData);
+    Self.CompareDBWithCloud(TRelatorioTipoLaudoWebData);
+    Self.CompareDBWithCloud(TEspecialidadeWebData);
+    Self.CompareDBWithCloud(TOperadoraWebData);
+    Self.CompareDBWithCloud(TConvenioWebData);
+    //Self.CompareDBWithCloud(TConvenioIntegracaoWebData);
+    Self.CompareDBWithCloud(TParametroConvenioWebData);
+    Self.CompareDBWithCloud(TEstabelecimentoSaudeWebData);
+    Self.CompareDBWithCloud(TConvenioEstabelecimentoSaudeWebData);
+    Self.CompareDBWithCloud(TMedicoWebData);
+    Self.CompareDBWithCloud(TCredencialWebData);
+    Self.CompareDBWithCloud(TTipoLaudoMedicoWebData);
+    Self.CompareDBWithCloud(TMedicoApoiadoWebData);
+    Self.CompareDBWithCloud(TPacienteWebData);
+    Self.CompareDBWithCloud(TPacienteApoiadoWebData);
+    Self.CompareDBWithCloud(TDadoAdicionalPacienteWebData);
+    Self.CompareDBWithCloud(TConfiguracaoGestaoLaudoWebData);
+    Self.CompareDBWithCloud(TLaudosGestaoLaudoWebData);
+    Self.CompareDBWithCloud(TContratoConvenioWebData);
+    Self.CompareDBWithCloud(TContratoValorIndividualWebData);
+    Self.CompareDBWithCloud(TParametroContratoConvenioWebData);
+    Self.CompareDBWithCloud(TTaxaExtraWebData);
+    Self.CompareDBWithCloud(TAntibioticoTipoInstrumentoWebData);
+    Self.CompareDBWithCloud(TConfiguracaoIpeWebData);
+    Self.CompareDBWithCloud(TGermeTipoInstrumentoWebData);
+    Self.CompareDBWithCloud(TCompExameApoiadoWebData);
+    Self.CompareDBWithCloud(TCompAtributoApoiadoWebData);
+    Self.CompareDBWithCloud(TOperadoraTelefoniaWebData);
+    Self.CompareDBWithCloud(TCompConvenioApoiadoWebData);
+    Self.CompareDBWithCloud(TCompDadoAdicionalApoiadoWebData);
+    Self.CompareDBWithCloud(TCompLocalApoiadoWebData);
+    Self.CompareDBWithCloud(TCompMaterialApoiadoWebData);
+    Self.CompareDBWithCloud(TUnidadeMedidaWebData);
+    Self.CompareDBWithCloud(TIndicadorMarcacaoWebData);
+    Self.CompareDBWithCloud(TMarcacaoIndicadorMarcacaoWebData);
+    Self.CompareDBWithCloud(TExameRelacionadoWebData);
+    Self.CompareDBWithCloud(TCaixaWebData);
+    Self.CompareDBWithCloud(TRequisicaoApoiadoWebData);
+    Self.CompareDBWithCloud(TLoteFaturaWebData);
+    Self.CompareDBWithCloud(TFaturaWebData);
+    Self.CompareDBWithCloud(TLoteAmostrasWebData);
+    Self.CompareDBWithCloud(TRequisicaoWebData); //requisicao, exame, amostra, exameamostra, laudorequisicao, examelaudorequisicao
+    Self.CompareDBWithCloud(TAmostraReplicadaWebData);
+    Self.CompareDBWithCloud(TExameLaudoRequisicaoWebData);
+    Self.CompareDBWithCloud(TExameAmostraWebData);
+    Self.CompareDBWithCloud(TResultadoGermeWebData);
+    Self.CompareDBWithCloud(TResultadoAtributoWebData);
+    Self.CompareDBWithCloud(TResultadoMicrobiologiaWebData);
+    Self.CompareDBWithCloud(TResultadoParasitologiaWebData);
+    Self.CompareDBWithCloud(TDadoAdicionalMovimentoWebData);
+    Self.CompareDBWithCloud(TDadoAdicionalMovimentoExameWebData);
+    Self.CompareDBWithCloud(TMovimentoCaixaWebData);
+    Self.CompareDBWithCloud(TRequisicaoTaxaExtraWebData);
+    Self.CompareDBWithCloud(TCancelamentoApoiadoWebData);
+    Self.CompareDBWithCloud(TReciboWebData);
+    Self.CompareDBWithCloud(TLoteLaudoWebData);
+    Self.CompareDBWithCloud(TExameFlagWebData);
+    Self.CompareDBWithCloud(TBandejaWebData);  //bandeja, bandejaamostra
+    Self.CompareDBWithCloud(THistoricoInstrumentoWebData);
+    Self.CompareDBWithCloud(THistoricoImagemInstrumentoWebData);
+    Self.CompareDBWithCloud(THistoricoResultadoWebData);
+    Self.CompareDBWithCloud(TOrcamentoWebData);
+    Self.CompareDBWithCloud(TDadoAdicionalMovimentoExameWebData);
+    Self.CompareDBWithCloud(TExameLoteLaudoWebData);
+    Self.CompareDBWithCloud(TDadoAdicionalApoiadoWebData);
+    Self.CompareDBWithCloud(TParametroUsuarioWebData);
+    Self.CompareDBWithCloud(TAtualizaLaudoPublicador);
+    Self.CompareDBWithCloud(TAtualizaExamePublicador);
+    Self.CompareDBWithCloud(TPendenciaExameLaudoWebData);
+  end;
   Self.Log(SEPARATOR, Self.GetLogSeparator);
   Self.Log(SEPARATOR, 'Fim da verificação');
 end;
@@ -424,14 +432,19 @@ begin
   Self.CompareDetailTableFromDB('DadoAdicionalMovimento', 'IdRequisicao;IdDadoAdicionalMovimento', _MasterIdRemoto, SQLBaseDadoAdicionalMovimento, _DetailIdRemoto);
 end;
 
-procedure TSyncDiff.SetFieldValue(aField:TField; var ValorCampo: string);
+function TSyncDiff.UnEscapeValueFromServer(aDataIntegrador: TDataIntegradorModuloWeb; const aValue: string): string;
+begin
+  Result := aDataIntegrador.UnEscapeValueFromServer(aValue);
+end;
+
+procedure TSyncDiff.SetFieldValue(aDataIntegrador: TDataIntegradorModuloWeb; aField:TField; var ValorCampo: string);
 var
   lFormatSettings: TFormatSettings;
 begin
   if aField <> nil then
   begin
     case aField.DataType of
-      ftString, ftMemo: aField.AsString := ValorCampo;
+      ftString, ftMemo: aField.AsString := Self.UnEscapeValueFromServer(aDataIntegrador, ValorCampo);
       ftInteger: aField.AsInteger := StrToInt(ValorCampo);
       ftLargeint: aField.AsLargeInt := StrToInt(ValorCampo);
       ftDate, ftDateTime, ftTimeStamp:
@@ -457,7 +470,7 @@ begin
         TBlobField(aField).LoadFromStream(UtilsUnit.BinaryFromBase64(ValorCampo));
       end
     else
-      aField.AsString := ValorCampo;
+      aField.AsString := Self.UnEscapeValueFromServer(aDataIntegrador, ValorCampo);
     end;
   end;
 end;
@@ -502,7 +515,7 @@ begin
             end;
           end;
 
-          Self.SetFieldValue(_Field, _fieldValue);
+          Self.SetFieldValue(aDataIntegrador, _Field, _fieldValue);
         end;
       end;
       try
@@ -587,7 +600,7 @@ begin
 
     for _detail in _DataWeb.tabelasDetalhe do
     begin
-      _sql := Format('SELECT detail.* FROM %s detail JOIN %s master ON detail.%s = master.%s WHERE master.idremoto IN (%s)',
+      _sql := Format('SELECT FIRST 50 detail.* FROM %s detail JOIN %s master ON detail.%s = master.%s WHERE master.idremoto IN (%s) AND detail.version_id > 0 AND detail.SalvouRetaguarda = ''S''',
                                     [_detail.nomeTabela, _DataWeb.nomeTabela, _DataWeb.nomePKLocal, _DataWeb.nomePKLocal, _IdRemotoMasterList]);
       _cdsDetailLocal := FDiff2.GetDataFromSQL(_sql);
       try
