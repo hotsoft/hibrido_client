@@ -2,17 +2,17 @@ unit IDataPrincipalUnit;
 
 interface
 
-uses Data.SqlExpr, Classes;
+uses Data.SqlExpr, Classes, Data.DBXCommon;
 
 type
 
 IDataPrincipal = interface
-  procedure startTransaction; overload;                     //Inicia uma transação no banco de dados
+  function startTransaction:TDBXTransaction; overload;                     //Inicia uma transação no banco de dados
 
-  procedure commit; overload;                               //faz commit dos dados da transação
+  procedure commit(aDbxTransaction: TDBXTransaction); overload;                               //faz commit dos dados da transação
                                                             //genérica
 
-  procedure rollback; overload;                             //faz o rollback da transação ativa
+  procedure rollback(aDbxTransaction: TDBXTransaction); overload;                             //faz o rollback da transação ativa
 
   function getSQLResult(sqlText: string): variant;          //retorna o resultado de uma query
                                                             //ele pode ser de qualquer tipo

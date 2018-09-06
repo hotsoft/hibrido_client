@@ -1,0 +1,60 @@
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <ProjectGuid>{4CA0B539-0015-478C-8B63-6FB7ACBB1098}</ProjectGuid>
+    </PropertyGroup>
+    <ItemGroup>
+        <Projects Include="Comparison.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="..\..\Agendador\DLL\HibridoClient\HibridoClient.dproj">
+            <Dependencies/>
+        </Projects>
+        <Projects Include="..\..\Agendador\Spartacus.dproj">
+            <Dependencies/>
+        </Projects>
+    </ItemGroup>
+    <ProjectExtensions>
+        <Borland.Personality>Default.Personality.12</Borland.Personality>
+        <Borland.ProjectType/>
+        <BorlandProject>
+            <Default.Personality/>
+        </BorlandProject>
+    </ProjectExtensions>
+    <Target Name="Comparison">
+        <MSBuild Projects="Comparison.dproj"/>
+    </Target>
+    <Target Name="Comparison:Clean">
+        <MSBuild Projects="Comparison.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Comparison:Make">
+        <MSBuild Projects="Comparison.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="HibridoClient">
+        <MSBuild Projects="..\..\Agendador\DLL\HibridoClient\HibridoClient.dproj"/>
+    </Target>
+    <Target Name="HibridoClient:Clean">
+        <MSBuild Projects="..\..\Agendador\DLL\HibridoClient\HibridoClient.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="HibridoClient:Make">
+        <MSBuild Projects="..\..\Agendador\DLL\HibridoClient\HibridoClient.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Spartacus">
+        <MSBuild Projects="..\..\Agendador\Spartacus.dproj"/>
+    </Target>
+    <Target Name="Spartacus:Clean">
+        <MSBuild Projects="..\..\Agendador\Spartacus.dproj" Targets="Clean"/>
+    </Target>
+    <Target Name="Spartacus:Make">
+        <MSBuild Projects="..\..\Agendador\Spartacus.dproj" Targets="Make"/>
+    </Target>
+    <Target Name="Build">
+        <CallTarget Targets="Comparison;HibridoClient;Spartacus"/>
+    </Target>
+    <Target Name="Clean">
+        <CallTarget Targets="Comparison:Clean;HibridoClient:Clean;Spartacus:Clean"/>
+    </Target>
+    <Target Name="Make">
+        <CallTarget Targets="Comparison:Make;HibridoClient:Make;Spartacus:Make"/>
+    </Target>
+    <Import Project="$(BDS)\Bin\CodeGear.Group.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Group.Targets')"/>
+</Project>
