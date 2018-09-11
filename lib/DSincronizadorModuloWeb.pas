@@ -177,7 +177,7 @@ begin
             Break;
 
           _Trans := dm.startTransaction;
-          dimw := dmw.Create(nil);
+          dimw := dmw.Create(nil, http);
           try
             try
               i := 1;
@@ -188,7 +188,7 @@ begin
               dimw.OnException := Self.OnException;
               dimw.CustomParams := Self.FCustomParams;
               dimw.DataLog := Self.FDataLog;
-              dimw.getDadosAtualizados(http);
+              dimw.getDadosAtualizados;
               if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
               inc(i);
               dm.commit(_Trans);
@@ -248,8 +248,6 @@ begin
 end;
 
 procedure TDataSincronizadorModuloWeb.addGetterBlock(aGetterBlock: TServerToClientBlock);
-var
-  item: TDataIntegradorModuloWebClass;
 begin
   SelF.FgetterBlocks.Add(aGetterBlock);
 end;
@@ -384,9 +382,8 @@ end;
 function TRunnerThreadPuters.getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
 var
   i: integer;
-  JsonValue: TJsonValue;
   JsonObject: TJsonValue;
-  JsonPair, JsonTableMap: TJsonPair;
+  JsonPair: TJsonPair;
 
 begin
   Result := TJsonSetting.Create;
@@ -430,7 +427,7 @@ begin
     begin
       if not Self.ShouldContinue then
         Break;
-      dmIntegrador := sincronizador.posterDataModules[i].Create(nil);
+      dmIntegrador := sincronizador.posterDataModules[i].Create(nil, nil);
       try
         if (dmIntegrador.getNomeTabela <> EmptyStr) and (dmIntegrador.NomeSingular <> EmptyStr) then
           if not aTranslatedTableName.ContainsKey(dmIntegrador.getNomeTabela) then
@@ -484,7 +481,7 @@ begin
             if not Self.ShouldContinue then
               Break;
 
-            dmIntegrador := sincronizador.posterDataModules[i].Create(nil);
+            dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
             try
               JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
               if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or

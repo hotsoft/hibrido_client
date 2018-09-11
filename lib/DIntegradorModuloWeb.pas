@@ -80,12 +80,15 @@ type
 
   TAnonymousMethod = reference to procedure(aDataSet: TDataSet);
 
+  TDataIntegradorModuloWebClass = class of TDataIntegradorModuloWeb;
+
   TNameTranslation = class
   public
     server: string;
     pdv: string;
     lookupRemoteTable: string;
     fkName: string;
+    DataIntegradorClass: TDataIntegradorModuloWebClass;
   end;
 
   TNameTranslationsList = class (TObjectList<TNameTranslation>)
@@ -97,7 +100,8 @@ type
       constructor create(owner: TComponent);
       destructor Destroy; override;
       procedure add(serverName, pdvName: string;
-        lookupRemoteTable: string = ''; fkName: string = '');
+        lookupRemoteTable: string = ''; fkName: string = '';
+        aDataIntegradorClass: TDataIntegradorModuloWebClass = nil);
       function translateServerToPDV(serverName: string; duasVias: boolean): string;
       function translatePDVToServer(pdvName: string): string;
       function size: integer;
@@ -140,6 +144,7 @@ type
     FStopOnGetRecordError : boolean;
     FStatementForPost: string;
     FnomeFK: string;
+    FHTTP: TIdHTTP;
     procedure addTabelaDetalheParams(valorPK: integer;
       params: TStringList;
       tabelaDetalhe: TTabelaDetalhe);
@@ -182,7 +187,6 @@ type
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
     function ultimaVersao: integer; virtual;
-    function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
     function importRecord(node: IXMLDomNode): boolean; virtual;
     procedure updateInsertRecord(node: IXMLDomNode; const id: integer);
     function jaExiste(const id: integer; Integrador: TDataIntegradorModuloWeb): boolean;
@@ -257,6 +261,7 @@ type
     function getDefaultSQLStatementForPost: string; virtual;
     function GetNomeFK: string; virtual;
     procedure setNomeFK(const Value: string); virtual;
+    function getHTTP: TIdHTTP;
   public
     translations: TTranslationSet;
     tabelasDetalhe: TTabelaDetalheList;
@@ -268,7 +273,7 @@ type
     property stopOnPostRecordError: boolean read FstopOnPostRecordError write FstopOnPostRecordError;
     property stopOnGetRecordError: boolean read FStopOnGetRecordError write FstopOnGetRecordError;
     function buildRequestURL(nomeRecurso: string; params: string = ''; httpAction: THttpAction = haGet): string; virtual; abstract;
-    procedure getDadosAtualizados(http: TIdHTTP = nil); virtual;
+    procedure getDadosAtualizados; virtual;
     function saveRecordToRemote(ds: TDataSet; var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
     procedure migrateSingletonTableToRemote;
     procedure postRecordsToRemote(http: TidHTTP = nil); virtual;
@@ -276,7 +281,7 @@ type
     procedure afterDadosAtualizados; virtual;
     function getHumanReadableName: string; virtual;
     property DataLog: ILog read FDataLog write SetDataLog;
-    constructor Create(AOwner: TComponent); override;
+    constructor Create(AOwner: TComponent; aHTTP: TIdHTTP); virtual;
     destructor Destroy; override;
     function getNomeTabela: string; virtual;
     procedure setNomeTabela(const Value: string); virtual;
@@ -294,9 +299,12 @@ type
     function getLastStream: TStringStream;
     function UnEscapeValueFromServer(const aValue: string): string;
     property OnException: TOnExceptionProcedure read FOnException write SetOnException;
+    function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; var aException: string): string; virtual;
+    procedure ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
+                                  const aXMLContent: string; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+    function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
   end;
 
-  TDataIntegradorModuloWebClass = class of TDataIntegradorModuloWeb;
 
   TGeneratorId = class
   private
@@ -319,7 +327,7 @@ type
     procedure setNomeParametro(const Value: string); virtual;
     function getNewId(node: IXMLDomNode): Integer; override;
   public
-    constructor Create(AOwner: TComponent);
+    constructor Create(AOwner: TComponent; aHTTP: TIdHTTP); override;
     destructor Destroy; override;
     property nomeParametro: string read GetNomeParametro write setNomeParametro;
   end;
@@ -342,16 +350,12 @@ begin
   Result := '/' + dasherize(nomePlural) + '//' + dasherize(FnomeSingular);
 end;
 
-procedure TDataIntegradorModuloWeb.getDadosAtualizados(http: TIdHTTP = nil);
+procedure TDataIntegradorModuloWeb.getDadosAtualizados;
 var
   url, xmlContent, erro: string;
-  doc: IXMLDomDocument2;
-  list : IXMLDomNodeList;
-  i, numRegistros: integer;
-  node : IXMLDomNode;
+  numRegistros, LastId: integer;
   keepImporting: boolean;
   vLog: string;
-  LastId, LastVersionId: integer;
 begin
   keepImporting := true;
   while keepImporting do
@@ -370,55 +374,66 @@ begin
     Self.Log(Format('Buscando %s',[getHumanReadableName]));
     Self.Log(url);
 
-    xmlContent := getRemoteXmlContent(url, http, erro);
+    xmlContent := getRemoteXmlContent(url, Self.getHTTP, erro);
     Self.FLastStream.Clear;
     Self.FLastStream.WriteString(xmlContent);
 
     if (erro <> EmptyStr) then
     begin
-      vLog := Format('Erro importando "%s": "%s". '+ #13#10, [getHumanReadableName, GetErrorMessage(erro, http.Response.ContentType)]);
+      vLog := Format('Erro importando "%s": "%s". '+ #13#10, [getHumanReadableName, GetErrorMessage(erro, self.Gethttp.Response.ContentType)]);
       Self.Log(vLog);
       raise EIntegradorException.Create(vLog);
     end;
-
-    if (trim(xmlContent) <> '') and (StrUtils.ContainsText(http.Response.ContentType, 'xml')) then
-    begin
-      doc := CoDOMDocument60.Create;
-      try
-        doc.loadXML(xmlContent);
-        list := doc.selectNodes(Self.getObjectsList);
-        numRegistros := list.length;
-        if notifier <> nil then
-          notifier.setCustomMessage(IntToStr(numRegistros) + ' novos');
-        for i := 0 to numRegistros-1 do
-        begin
-          if (not self.shouldContinue) then
-            Break;
-
-          if notifier <> nil then
-            notifier.setCustomMessage('Importando ' + getHumanReadableName + ': ' + IntToStr(i+1) +
-            '/' + IntToStr(numRegistros));
-          node := list.item[i];
-          if node<>nil then
-          begin
-            if not importRecord(node) and Self.FStopOnGetRecordError then
-              Break;
-            if i = numRegistros - 1 then
-            begin
-              LastId := strToIntDef(node.selectSingleNode(dasherize(nomePKRemoto)).text, -1);
-              LastVersionId :=  strToIntDef(node.selectSingleNode(dasherize(Self.getVersionFieldName)).text, -1);
-              if (LastId > 0) and (LastVersionId > 0) then
-                Self.UpdateVersionId(LastId, LastVersionId);
-            end;
-          end;
-        end;
-      finally
-        doc := nil;
-      end;
-    end;
+    Self.ImportXMLFromServer(Self, xmlContent, numRegistros, LastId);
     keepImporting := (maxRecords > 0) and (numRegistros >= maxRecords);
   end;
   afterDadosAtualizados;
+end;
+
+procedure TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
+                                                       const aXMLContent: string; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+var
+  doc: IXMLDomDocument2;
+  list : IXMLDomNodeList;
+  i : integer;
+  node : IXMLDomNode;
+  LastVersionId: integer;
+begin
+  if (not (aXmlContent.Trim.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
+  begin
+    doc := CoDOMDocument60.Create;
+    try
+      doc.loadXML(aXmlContent);
+      list := doc.selectNodes(aDataIntegradorModuloWeb.getObjectsList);
+      aNumRegistros := list.length;
+      if aDataIntegradorModuloWeb.notifier <> nil then
+        aDataIntegradorModuloWeb.notifier.setCustomMessage(IntToStr(aNumRegistros) + ' novos');
+      for i := 0 to aNumRegistros-1 do
+      begin
+        if (not aDataIntegradorModuloWeb.shouldContinue) then
+          Break;
+
+        if aDataIntegradorModuloWeb.notifier <> nil then
+          aDataIntegradorModuloWeb.notifier.setCustomMessage('Importando ' + aDataIntegradorModuloWeb.getHumanReadableName + ': ' + IntToStr(i+1) +
+          '/' + IntToStr(aNumRegistros));
+        node := list.item[i];
+        if node<>nil then
+        begin
+          if not aDataIntegradorModuloWeb.importRecord(node) and aDataIntegradorModuloWeb.StopOnGetRecordError then
+            Break;
+          if (i = aNumRegistros - 1) then
+          begin
+            aLastId := strToIntDef(node.selectSingleNode(dasherize(nomePKRemoto)).text, -1);
+            LastVersionId :=  strToIntDef(node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)).text, -1);
+            if aUpdateLastVersionId and (aLastId > 0) and (LastVersionId > 0) then
+              aDataIntegradorModuloWeb.UpdateVersionId(aLastId, LastVersionId);
+          end;
+        end;
+      end;
+    finally
+      doc := nil;
+    end;
+  end;
 end;
 
 function TDataIntegradorModuloWeb.GetDefaultValueForSalvouRetaguarda: Char;
@@ -452,6 +467,11 @@ begin
   end;
 end;
 
+
+function TDataIntegradorModuloWeb.getHTTP: TIdHTTP;
+begin
+  Result := Self.FHTTP;
+end;
 
 function TDataIntegradorModuloWeb.getHumanReadableName: string;
 begin
@@ -1401,6 +1421,11 @@ begin
   end;
 end;
 
+function TDataIntegradorModuloWeb.getXMLFromServerByIdRemotoList(const aIdRemotoList: string; var aException: string): string;
+begin
+  Result := EmptyStr;
+end;
+
 function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet;
   var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
 var
@@ -1753,7 +1778,7 @@ end;
 { TTranslationSet }
 
 procedure TTranslationSet.add(serverName, pdvName: string;
-  lookupRemoteTable: string = ''; fkName: string = '');
+  lookupRemoteTable: string = ''; fkName: string = ''; aDataIntegradorClass: TDataIntegradorModuloWebClass = nil);
 var
   Translation: TNameTranslation;
 begin
@@ -1762,6 +1787,7 @@ begin
   Translation.pdv := pdvName;
   Translation.lookupRemoteTable := lookupRemoteTable;
   Translation.fkName := fkName;
+  Translation.DataIntegradorClass := aDataIntegradorClass;
   Translations.Add(Translation);
 end;
 
@@ -1826,7 +1852,7 @@ begin
       end;
 end;
 
-constructor TDataIntegradorModuloWeb.Create(AOwner: TComponent);
+constructor TDataIntegradorModuloWeb.Create(AOwner: TComponent; aHTTP: TIdHTTP);
 begin
   inherited Create(AOwner);
   verbose := false;
@@ -1847,6 +1873,7 @@ begin
   tabelasDependentes := TTabelaDependenteList.Create(True);
   Self.FStatementForPost := EmptyStr;
   Self.FLastStream := TStringStream.Create('', TEncoding.UTF8);
+  Self.FHTTP := aHTTP;
 end;
 
 destructor TDataIntegradorModuloWeb.Destroy;
@@ -2062,7 +2089,7 @@ end;
 
 { TTabelaDetalhe }
 
-constructor TTabelaDetalhe.Create;
+constructor TTabelaDetalhe.Create(AOwner: TComponent; aHTTP: TIdHTTP);
 begin
   inherited;
   translations := TTranslationSet.create(nil);
