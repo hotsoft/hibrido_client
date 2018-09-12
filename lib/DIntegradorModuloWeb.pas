@@ -299,9 +299,9 @@ type
     function getLastStream: TStringStream;
     function UnEscapeValueFromServer(const aValue: string): string;
     property OnException: TOnExceptionProcedure read FOnException write SetOnException;
-    function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; var aException: string): string; virtual;
+    function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean; virtual;
     procedure ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
-                                  const aXMLContent: string; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+                                  aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
   end;
 
@@ -352,10 +352,11 @@ end;
 
 procedure TDataIntegradorModuloWeb.getDadosAtualizados;
 var
-  url, xmlContent, erro: string;
+  url, erro: string;
   numRegistros, LastId: integer;
   keepImporting: boolean;
   vLog: string;
+  retornoStream: TStringStream;
 begin
   keepImporting := true;
   while keepImporting do
@@ -374,24 +375,31 @@ begin
     Self.Log(Format('Buscando %s',[getHumanReadableName]));
     Self.Log(url);
 
-    xmlContent := getRemoteXmlContent(url, Self.getHTTP, erro);
-    Self.FLastStream.Clear;
-    Self.FLastStream.WriteString(xmlContent);
+    retornoStream := TStringStream.Create('', TEncoding.UTF8);
+    try
+      if getRemoteXmlContent(url, Self.getHTTP, erro, retornoStream) then
+      begin
+        Self.FLastStream.Clear;
+        Self.FLastStream.LoadFromStream(retornoStream);
 
-    if (erro <> EmptyStr) then
-    begin
-      vLog := Format('Erro importando "%s": "%s". '+ #13#10, [getHumanReadableName, GetErrorMessage(erro, self.Gethttp.Response.ContentType)]);
-      Self.Log(vLog);
-      raise EIntegradorException.Create(vLog);
+        if (erro <> EmptyStr) then
+        begin
+          vLog := Format('Erro importando "%s": "%s". '+ #13#10, [getHumanReadableName, GetErrorMessage(erro, self.Gethttp.Response.ContentType)]);
+          Self.Log(vLog);
+          raise EIntegradorException.Create(vLog);
+        end;
+        Self.ImportXMLFromServer(Self, retornoStream, numRegistros, LastId);
+      end;
+    finally
+      retornoStream.Free;
     end;
-    Self.ImportXMLFromServer(Self, xmlContent, numRegistros, LastId);
     keepImporting := (maxRecords > 0) and (numRegistros >= maxRecords);
   end;
   afterDadosAtualizados;
 end;
 
 procedure TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
-                                                       const aXMLContent: string; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+                                                       aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
 var
   doc: IXMLDomDocument2;
   list : IXMLDomNodeList;
@@ -399,11 +407,11 @@ var
   node : IXMLDomNode;
   LastVersionId: integer;
 begin
-  if (not (aXmlContent.Trim.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
+  if (not (aRetornoStream.DataString.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
   begin
     doc := CoDOMDocument60.Create;
     try
-      doc.loadXML(aXmlContent);
+      doc.loadXML(aRetornoStream.DataString);
       list := doc.selectNodes(aDataIntegradorModuloWeb.getObjectsList);
       aNumRegistros := list.length;
       if aDataIntegradorModuloWeb.notifier <> nil then
@@ -1421,9 +1429,9 @@ begin
   end;
 end;
 
-function TDataIntegradorModuloWeb.getXMLFromServerByIdRemotoList(const aIdRemotoList: string; var aException: string): string;
+function TDataIntegradorModuloWeb.getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean;
 begin
-  Result := EmptyStr;
+  Result := True;
 end;
 
 function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet;
