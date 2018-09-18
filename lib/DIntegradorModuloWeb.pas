@@ -262,6 +262,8 @@ type
     function GetNomeFK: string; virtual;
     procedure setNomeFK(const Value: string); virtual;
     function getHTTP: TIdHTTP;
+    const
+      cNullToServer = '§NULL§';
   public
     translations: TTranslationSet;
     tabelasDetalhe: TTabelaDetalheList;
@@ -1279,7 +1281,7 @@ begin
           if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
             Result.AddPair(nome, valor)
           else if StringUTF8 = '' then
-            Result.AddPair(nome, TIdEncoderMIME.EncodeString('§NULL§', IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
+            Result.AddPair(nome, TIdEncoderMIME.EncodeString(cNullToServer, IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
           else
             Result.AddPair(nome, TIdEncoderMIME.EncodeString(StringUTF8, IndyTextEncoding_UTF8))
         end
@@ -1930,7 +1932,9 @@ begin
   end
   else
   begin
-    if field.DataType in [ftFloat, ftBCD, ftFMTBCD, ftCurrency] then
+    if field.FieldName.Trim.ToUpper.Equals('VERSION_ID') and ValorCampo.Trim.Equals('-1') then
+      result := cNullToServer
+    else if field.DataType in [ftFloat, ftBCD, ftFMTBCD, ftCurrency] then
     begin
       result := StringReplace(ValorCampo, ',','.', [rfReplaceAll]);
     end
