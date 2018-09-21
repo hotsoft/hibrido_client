@@ -162,6 +162,23 @@ type
     procedure UpdateVersionId(const aId, aLastVersionId: integer);
     procedure resyncRecord(const aId: integer);
     function EscapeValueToServer(const aValue: string): string;
+    procedure ResyncPostRecords(aPostQuery: TSQLDataSet; aDataIntegrador: TDataIntegradorModuloWeb);
+    const
+      SQLFK =
+        ' SELECT'+
+        '    TRIM(detail_index_segments.rdb$field_name) AS field_name,'+
+        '    TRIM(master_relation_constraints.rdb$relation_name) AS reference_table,'+
+        '    TRIM(master_index_segments.rdb$field_name) AS fk_field'+
+        ' FROM'+
+        '    rdb$relation_constraints detail_relation_constraints'+
+        '    JOIN rdb$index_segments detail_index_segments ON detail_relation_constraints.rdb$index_name = detail_index_segments.rdb$index_name '+
+        '    JOIN rdb$ref_constraints ON detail_relation_constraints.rdb$constraint_name = rdb$ref_constraints.rdb$constraint_name '+ // Master indeksas
+        '    JOIN rdb$relation_constraints master_relation_constraints ON rdb$ref_constraints.rdb$const_name_uq = master_relation_constraints.rdb$constraint_name '+
+        '    JOIN rdb$index_segments master_index_segments ON master_relation_constraints.rdb$index_name = master_index_segments.rdb$index_name '+
+        ' WHERE'+
+        '    detail_relation_constraints.rdb$constraint_type = ''FOREIGN KEY'''+
+        '    AND detail_relation_constraints.rdb$relation_name = ''%s''';
+
   protected
     FFieldList : TFieldDictionaryList;
     FDataLog: ILog;
@@ -189,7 +206,7 @@ type
     function ultimaVersao: integer; virtual;
     function importRecord(node: IXMLDomNode): boolean; virtual;
     procedure updateInsertRecord(node: IXMLDomNode; const id: integer);
-    function jaExiste(const id: integer; Integrador: TDataIntegradorModuloWeb): boolean;
+    function jaExiste(aNode:IXMLDOMNode; const id: integer; Integrador: TDataIntegradorModuloWeb; var aCustomWhere: string): integer;
     function getFieldList(node: IXMLDomNode): string;
     function getFieldUpdateList(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
     function getFieldValues(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
@@ -262,6 +279,7 @@ type
     function GetNomeFK: string; virtual;
     procedure setNomeFK(const Value: string); virtual;
     function getHTTP: TIdHTTP;
+    function GetFallbackWhere(aNode: IXMLDOMNode): string; virtual;
     const
       cNullToServer = '§NULL§';
   public
@@ -565,12 +583,18 @@ begin
   result := (nomePKLocal = '') and (nomePKRemoto = '');
 end;
 
-function TDataIntegradorModuloWeb.jaExiste(const id: integer; Integrador: TDataIntegradorModuloWeb): boolean;
+function TDataIntegradorModuloWeb.jaExiste(aNode:IXMLDOMNode; const id: integer; Integrador: TDataIntegradorModuloWeb; var aCustomWhere: string): integer;
 var
   qry: string;
 begin
-  qry := 'SELECT count(1) FROM ' + Integrador.nomeTabela + Self.CheckQryCommandTextForDuasVias(Id, Integrador);
-  result := dmPrincipal.getSQLIntegerResult(qry) > 0;
+  //pegar o Version_id mais recente
+  qry := 'SELECT MAX(Version_Id) Version_Id FROM ' + Integrador.nomeTabela + Self.CheckQryCommandTextForDuasVias(Id, Integrador);
+  result := dmPrincipal.getSQLIntegerResult(qry);
+  if (Result = 0) then
+  begin
+    //fallback
+    aCustomWhere := Integrador.GetFallbackWhere(aNode);
+  end;
 end;
 
 function TDataIntegradorModuloWeb.getUpdateStatement(node: IXMLDomNode; const id: integer): String;
@@ -720,7 +744,6 @@ var
   name: string;
   qry: TSQLDataSet;
   FieldsListUpdate, FieldsListInsert : string;
-  Existe: Boolean;
   NewId: integer;
   ChildrenNodes: TXMLNodeDictionary;
   ChildNode: TPair<string, IXMLDomNode>;
@@ -732,13 +755,18 @@ var
   Detail: TDataIntegradorModuloWeb;
   DMLOperation: TDMLOperation;
   StrCheckInsert: TStringList;
-
+  _MaxVersionId: integer;
+  _CustomWhere: string;
+  _WhereInUpdate: String;
 begin
-  Existe := jaExiste(id, Integrador);
+  NewId := 0;
+  _CustomWhere := EmptyStr;
+  _WhereInUpdate := EmptyStr;
+  _MaxVersionId := jaExiste(node, id, Integrador, _CustomWhere);
   qry := dmPrincipal.getQuery;
   ChildrenNodes := TXMLNodeDictionary.Create;
   try
-    if Existe then
+    if (_MaxVersionId > 0) or (not _CustomWhere.IsEmpty) then
     begin
       DMLOperation := dmUpdate;
       FieldsListUpdate := Self.getFieldUpdateList(node, Integrador);
@@ -746,7 +774,11 @@ begin
         FieldsListUpdate := 'SALVOURETAGUARDA = ' + QuotedStr(Self.GetDefaultValueForSalvouRetaguarda)+ ','+ FieldsListUpdate;
 
       qry.CommandText := 'UPDATE ' + Integrador.nomeTabela + ' SET ' + FieldsListUpdate;
-      qry.CommandText := qry.CommandText + CheckQryCommandTextForDuasVias(Id, Integrador) + ' and SALVOURETAGUARDA = ''S''';
+      if (_MaxVersionId > 0) then
+        _WhereInUpdate := CheckQryCommandTextForDuasVias(Id, Integrador) + ' and SALVOURETAGUARDA = ''S'' AND Version_ID = ' + _MaxVersionId.ToString
+      else
+        _WhereInUpdate := _CustomWhere;
+      qry.CommandText := qry.CommandText + _WhereInUpdate;
     end
     else
     begin
@@ -779,7 +811,19 @@ begin
 
     Self.SetQueryParameters(qry, DMLOperation, node, ChildrenNodes, Integrador);
 
-    Self.ExecQuery(qry);
+    try
+      Self.ExecQuery(qry);
+    except
+      on E: Exception do
+      begin
+        if not _WhereInUpdate.IsEmpty then
+        begin
+          //normaliza a tabela, pois o registro da web não bate com o registro local.
+          Self.dmPrincipal.ExecuteDirect('UPDATE ' + Integrador.nomeTabela + ' SET SalvouRetaguarda = ''S'', IdRemoto = Null '+ _WhereInUpdate);
+          raise;
+        end;
+      end;
+    end;
 
     for ChildNode in ChildrenNodes do
     begin
@@ -1620,6 +1664,11 @@ end;
   end;
 end;
 
+function TDataIntegradorModuloWeb.GetFallbackWhere(aNode: IXMLDOMNode): string;
+begin
+  Result := EmptyStr;
+end;
+
 procedure TDataIntegradorModuloWeb.addDetails(ds: TDataSet; params: TStringList);
 var
   Detalhe : TTabelaDetalhe;
@@ -1685,6 +1734,29 @@ begin
   FStatementForPost:= aStatement;
 end;
 
+procedure TDataIntegradorModuloWeb.ResyncPostRecords(aPostQuery: TSQLDataSet;  aDataIntegrador: TDataIntegradorModuloWeb);
+var
+  _sql: string;
+  _qry: TSQLDataSet;
+begin
+  _sql := Format(SQLFK, [aDataIntegrador.nomeTabela.ToUpper]);
+  _qry := dmPrincipal.getQuery;
+  try
+    _qry.commandText := _sql;
+    _qry.Open;
+    _qry.First;
+    while not _qry.Eof do
+    begin
+      dmPrincipal.ExecuteDirect(Format('UPDATE %s SET SalvouRetaguarda = ''N'' WHERE %s = %d ',[_qry.FieldByName('reference_table').AsString,
+                                                                                                _qry.FieldByName('fk_field').AsString,
+                                                                                                aPostQuery.FieldByName(_qry.FieldByName('field_name').AsString ).AsInteger ]));
+      _qry.Next;
+    end;
+  finally
+    _qry.Free;
+  end;
+end;
+
 procedure TDataIntegradorModuloWeb.postRecordsToRemote(http: TidHTTP = nil);
 var
   qry: TSQLDataSet;
@@ -1732,10 +1804,10 @@ begin
           saveRecordToRemote(qry, salvou, http);
           if salvou then
             Self.Log(Format('Registro %d de %d', [n, total]));
-          inc(n);
         except
           on e: Exception do
           begin
+            Self.ResyncPostRecords(qry, Self);
             if assigned(Self.FOnException) then
               Self.FOnException(haPost, Self, E.ClassName, E.Message);
 
@@ -1744,6 +1816,7 @@ begin
               raise;
           end;
         end;
+        inc(n);
         qry.Next;
       end;
       if notifier <> nil then

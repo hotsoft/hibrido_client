@@ -29,6 +29,7 @@ IDataPrincipal = interface
   function sincronizar: boolean;                            //indica se deve-se ou não sincronizar
                                                             //com a parte web. Útil quando queremos ter
                                                             //clientes que sincronizam e outros que não sincronizam
+  function ExecuteDirect(const aExecStatement: string): integer; //Executa um Insert/Update em um contexto de conexão isolado
 end;
 
 implementation
