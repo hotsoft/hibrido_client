@@ -584,7 +584,7 @@ var
   _detail: TTabelaDetalhe;
 begin
   Self.Log(Separator, Self.GetLogSeparator);
-  _DataWeb := aDataIntegradorClass.Create(nil);
+  _DataWeb := aDataIntegradorClass.Create(nil, nil);
   try
     Self.Log(_DataWeb.nomeTabela , 'Verificando...');
 
