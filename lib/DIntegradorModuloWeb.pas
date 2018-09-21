@@ -766,7 +766,8 @@ begin
   qry := dmPrincipal.getQuery;
   ChildrenNodes := TXMLNodeDictionary.Create;
   try
-    if (_MaxVersionId > 0) or (not _CustomWhere.IsEmpty) then
+    //Version_Id inicia com -1, desta forma, tem que testar se é diferente de zero para que não insira registros indevidamente
+    if (_MaxVersionId <> 0) or (not _CustomWhere.IsEmpty) then
     begin
       DMLOperation := dmUpdate;
       FieldsListUpdate := Self.getFieldUpdateList(node, Integrador);
@@ -774,10 +775,11 @@ begin
         FieldsListUpdate := 'SALVOURETAGUARDA = ' + QuotedStr(Self.GetDefaultValueForSalvouRetaguarda)+ ','+ FieldsListUpdate;
 
       qry.CommandText := 'UPDATE ' + Integrador.nomeTabela + ' SET ' + FieldsListUpdate;
-      if (_MaxVersionId > 0) then
-        _WhereInUpdate := CheckQryCommandTextForDuasVias(Id, Integrador) + ' and SALVOURETAGUARDA = ''S'' AND Version_ID = ' + _MaxVersionId.ToString
+      if (not _CustomWhere.IsEmpty) then
+        _WhereInUpdate := _CustomWhere
       else
-        _WhereInUpdate := _CustomWhere;
+        _WhereInUpdate := CheckQryCommandTextForDuasVias(Id, Integrador) + ' and SALVOURETAGUARDA = ''S'' AND Version_ID = ' + _MaxVersionId.ToString;
+
       qry.CommandText := qry.CommandText + _WhereInUpdate;
     end
     else

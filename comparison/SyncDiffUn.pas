@@ -653,7 +653,7 @@ begin
   if not _xmlContent.IsEmpty then
   begin
     Result := OmniXML.CreateXMLDoc;
-    Result.PreserveWhiteSpace := False;
+    Result.PreserveWhiteSpace := True;
     Result.load(ExtractFilePath(ParamStr(0)) + '/response.xml');
     Result.Save(ExtractFilePath(ParamStr(0)) + '/response.xml', ofIndent);
   end
@@ -697,7 +697,7 @@ begin
           for _Field in aCds1.Fields do
           begin
             if (_WhiteListFields.IndexOf(_Field.FieldName.ToUpper) = -1) and
-              (_Field.AsString <> aCds2.FieldByName(_Field.FieldName).AsString) then
+              (_Field.AsString.TrimRight <> aCds2.FieldByName(_Field.FieldName).AsString.TrimRight) then
               begin
                 Result := False;
                 _LogList.Add(Format('Field "%s" com valor diferente. Banco1: "%s"; Banco2: "%s"',
