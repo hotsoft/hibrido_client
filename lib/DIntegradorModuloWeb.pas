@@ -1740,7 +1740,11 @@ procedure TDataIntegradorModuloWeb.ResyncPostRecords(aPostQuery: TSQLDataSet;  a
 var
   _sql: string;
   _qry: TSQLDataSet;
+  _NameTranslation: TNameTranslation;
+ const
+   UpdateFK = 'UPDATE %s SET SalvouRetaguarda = ''N'' WHERE %s = %d ';
 begin
+  //primeiro tenta pelas fks configuradas no fb
   _sql := Format(SQLFK, [aDataIntegrador.nomeTabela.ToUpper]);
   _qry := dmPrincipal.getQuery;
   try
@@ -1749,13 +1753,26 @@ begin
     _qry.First;
     while not _qry.Eof do
     begin
-      dmPrincipal.ExecuteDirect(Format('UPDATE %s SET SalvouRetaguarda = ''N'' WHERE %s = %d ',[_qry.FieldByName('reference_table').AsString,
-                                                                                                _qry.FieldByName('fk_field').AsString,
-                                                                                                aPostQuery.FieldByName(_qry.FieldByName('field_name').AsString ).AsInteger ]));
+      if aPostQuery.FieldByName(_qry.FieldByName('field_name').AsString ).AsInteger > 0 then
+        dmPrincipal.ExecuteDirect(Format(UpdateFK,[_qry.FieldByName('reference_table').AsString,
+                                                   _qry.FieldByName('fk_field').AsString,
+                                                   aPostQuery.FieldByName(_qry.FieldByName('field_name').AsString ).AsInteger ]));
       _qry.Next;
     end;
   finally
     _qry.Free;
+  end;
+
+  //para garantir, fazer também pelos translates
+  for _NameTranslation in aDataIntegrador.translations.Translations do
+  begin
+    if (not _NameTranslation.lookupRemoteTable.IsEmpty) then
+    begin
+      if (aPostQuery.FieldByName(_NameTranslation.pdv).AsInteger > 0) then
+        dmPrincipal.ExecuteDirect(Format(UpdateFK,[_NameTranslation.lookupRemoteTable,
+                                  _NameTranslation.pdv ,
+                                  aPostQuery.FieldByName(_NameTranslation.pdv).AsInteger ]));
+    end;
   end;
 end;
 
