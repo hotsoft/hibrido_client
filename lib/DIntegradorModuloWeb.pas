@@ -280,6 +280,8 @@ type
     procedure setNomeFK(const Value: string); virtual;
     function getHTTP: TIdHTTP;
     function GetFallbackWhere(aNode: IXMLDOMNode): string; virtual;
+    function getURL: string; virtual;
+    function getDefaultParams: string; virtual;
     const
       cNullToServer = '§NULL§';
   public
@@ -292,7 +294,7 @@ type
     property dmPrincipal: IDataPrincipal read getdmPrincipal write SetdmPrincipal;
     property stopOnPostRecordError: boolean read FstopOnPostRecordError write FstopOnPostRecordError;
     property stopOnGetRecordError: boolean read FStopOnGetRecordError write FstopOnGetRecordError;
-    function buildRequestURL(nomeRecurso: string; params: string = ''; httpAction: THttpAction = haGet): string; virtual; abstract;
+    function buildRequestURL(nomeRecurso: string; params: string = ''; httpAction: THttpAction = haGet): string; virtual;
     procedure getDadosAtualizados; virtual;
     function saveRecordToRemote(ds: TDataSet; var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
     procedure migrateSingletonTableToRemote;
@@ -356,7 +358,7 @@ var
   DataIntegradorModuloWeb: TDataIntegradorModuloWeb;
 implementation
 
-uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn, MSHTML;
+uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn, MSHTML, HibridoConsts;
 
 {$R *.dfm}
 
@@ -602,6 +604,13 @@ begin
   Result := getUpdateBaseSQL(node, Self) + Self.CheckQryCommandTextForDuasVias(Id, Self);
 end;
 
+function TDataIntegradorModuloWeb.getURL: string;
+begin
+  Result := EmptyStr;
+  if (Self.CustomParams <> nil) and Self.CustomParams.getCustomParams.ContainsKey(cEnderecoHibrido) then
+    Result := acStrUtils.EnsureTrailingSlash(Self.CustomParams.getCustomParams.Items[cEnderecoHibrido]);
+end;
+
 function TDataIntegradorModuloWeb.getInsertStatement(node: IXMLDomNode): String;
 begin
   Result := 'INSERT INTO ' + nomeTabela + getFieldList(node) + ' values ' + getFieldValues(node, Self);
@@ -819,11 +828,9 @@ begin
       on E: Exception do
       begin
         if not _WhereInUpdate.IsEmpty then
-        begin
           //normaliza a tabela, pois o registro da web não bate com o registro local.
           Self.dmPrincipal.ExecuteDirect('UPDATE ' + Integrador.nomeTabela + ' SET SalvouRetaguarda = ''S'', IdRemoto = Null '+ _WhereInUpdate);
-          raise;
-        end;
+        raise;
       end;
     end;
 
@@ -1478,8 +1485,21 @@ begin
 end;
 
 function TDataIntegradorModuloWeb.getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean;
+var
+  _URL: string;
 begin
-  Result := True;
+  Result := False;
+  aException := EmptyStr;
+  try
+    _URL := Self.getRequestUrlForAction(False);
+    Self.getHTTP.Request.CustomHeaders.Clear;
+    Self.getHTTP.Request.CustomHeaders.FoldLines := False;
+    Self.getHTTP.Request.CustomHeaders.Add('Id-List:'+ aIdRemotoList);
+    Self.getHTTP.Get(_URL, aRetornoStream);
+    Result := not aRetornoStream.DataString.IsEmpty;
+  except
+    aException := UtilsUnit.HandleException(_URL);
+  end;
 end;
 
 function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet;
@@ -1722,6 +1742,13 @@ begin
   end;
 end;
 
+function TDataIntegradorModuloWeb.getDefaultParams: string;
+begin
+  Result := EmptyStr;
+  if Self.CustomParams <> nil then
+    Result := Self.CustomParams.getCustomParams.getDefaultParams;
+end;
+
 function TDataIntegradorModuloWeb.getDefaultSQLStatementForPost: string;
 begin
   if Self.FStatementForPost <> EmptyStr then
@@ -1741,6 +1768,8 @@ var
   _sql: string;
   _qry: TSQLDataSet;
   _NameTranslation: TNameTranslation;
+  _det: TTabelaDetalhe;
+  _qryDetalhe: TSQLDataSet;
  const
    UpdateFK = 'UPDATE %s SET SalvouRetaguarda = ''N'' WHERE %s = %d ';
 begin
@@ -1772,6 +1801,19 @@ begin
         dmPrincipal.ExecuteDirect(Format(UpdateFK,[_NameTranslation.lookupRemoteTable,
                                   _NameTranslation.pdv ,
                                   aPostQuery.FieldByName(_NameTranslation.pdv).AsInteger ]));
+    end;
+  end;
+
+  for _det in aDataIntegrador.tabelasDetalhe do
+  begin
+    _qryDetalhe := dmPrincipal.getQuery;
+    try
+      _qryDetalhe.CommandText := 'SELECT * FROM ' + _det.nomeTabela + ' WHERE ' + _det.nomeFK + ' = ' + aPostQuery.FieldByName(aDataIntegrador.nomePKLocal).AsString;
+      _qryDetalhe.Open;
+      if not _QryDetalhe.IsEmpty then
+        _det.ResyncPostRecords(_qryDetalhe, _det);
+    finally
+      _qryDetalhe.Free;
     end;
   end;
 end;
@@ -2189,6 +2231,17 @@ end;
 function TDataIntegradorModuloWeb.BinaryFromBase64(const base64: string): TBytesStream;
 begin
   Result := UtilsUnit.BinaryFromBase64(base64);
+end;
+
+function TDataIntegradorModuloWeb.buildRequestURL(nomeRecurso, params: string;
+  httpAction: THttpAction): string;
+begin
+  Result := Self.getURL + nomePlural;
+  if httpAction = haPost then
+    Result := Result + '.json' + '?'
+  else
+    Result := Result + '.xml' + '?';
+  Result := Result + Self.getDefaultParams;
 end;
 
 { TTabelaDetalhe }
