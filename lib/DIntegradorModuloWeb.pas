@@ -16,7 +16,7 @@ type
 
   TDataIntegradorModuloWeb = class;
 
-  TOnExceptionProcedure = procedure (AHttpAction: THttpAction; aIntegrador: TDataIntegradorModuloWeb; const AExceptionClassName, aExceptionMessage: string) of object;
+  TOnExceptionProcedure = procedure (AHttpAction: THttpAction; aIntegrador: TDataIntegradorModuloWeb; const AExceptionClassName, aExceptionMessage: string; const aRecordId: integer) of object;
 
   TJsonSetting = class
   private
@@ -827,6 +827,9 @@ begin
     except
       on E: Exception do
       begin
+        if assigned(Self.FOnException) then
+          Self.FOnException(haGet, Integrador, E.ClassName, E.Message, Id);//onde Id = RemoteId
+
         if not _WhereInUpdate.IsEmpty then
           //normaliza a tabela, pois o registro da web não bate com o registro local.
           Self.dmPrincipal.ExecuteDirect('UPDATE ' + Integrador.nomeTabela + ' SET SalvouRetaguarda = ''S'', IdRemoto = Null '+ _WhereInUpdate);
@@ -1870,7 +1873,7 @@ begin
           begin
             Self.ResyncPostRecords(qry, Self);
             if assigned(Self.FOnException) then
-              Self.FOnException(haPost, Self, E.ClassName, E.Message);
+              Self.FOnException(haPost, Self, E.ClassName, E.Message, qry.FieldByName(Self.nomePKLocal).AsInteger);
 
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
             if stopOnPostRecordError then
