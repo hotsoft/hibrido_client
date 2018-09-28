@@ -8,6 +8,7 @@ uses Datasnap.DBClient, Classes, SysUtils, DB, StrUtils, IdHTTP, OmniXML,
 type
   ISQLDiff = interface
     function GetDataFromSQL(const aSQL: string): TClientDataSet;
+    function ExecuteDirect(const aSQL: string): integer;
   end;
 
   TOnCompare = procedure (const aTableName, aDiff: string) of object;
@@ -48,6 +49,9 @@ type
     procedure TurnOffRequiredFields(aCds: TClientDataSet);
     procedure CompareCds1WithCds2(aDataIntegrador: TDataIntegradorModuloWeb; aClientDataSetBase: TClientDataSet; const aIdRemotoList: string);
     function UnEscapeValueFromServer(aDataIntegrador: TDataIntegradorModuloWeb; const aValue: string): string;
+    procedure CheckRemotedIds(const aTableName: string);
+    function GetListFromCDS(const aFieldName: string;
+      aCds: TClientDataSet): string;
   public
     constructor Create(aDiff1, aDiff2: ISQLDiff);
     destructor Destroy; override;
@@ -96,6 +100,13 @@ const
     '    detail_relation_constraints.rdb$constraint_type = ''FOREIGN KEY'''+
     '    AND detail_relation_constraints.rdb$relation_name = ''%s''';
 
+  SQLCHECKRemoteIds =
+    ' SELECT FIRST 1000 DISTINCT IDREMOTO, COUNT(*) '+
+    ' FROM %s ' +
+    ' WHERE IDREMOTO > 0 '+
+    ' GROUP BY IDREMOTO ' +
+    ' HAVING COUNT(*) > 1' +
+    ' ORDER BY IDREMOTO ';
 
 implementation
 
@@ -575,6 +586,78 @@ begin
   end;
 end;
 
+function TSyncDiff.GetListFromCDS(const aFieldName: string; aCds: TClientDataSet): string;
+begin
+  Result := EmptyStr;
+  if not aCds.IsEmpty then
+  begin
+    aCds.First;
+    while not aCds.Eof do
+    begin
+      Result := Result + aCds.FieldByName(aFieldName).AsString;
+      aCds.Next;
+      if not aCds.Eof then
+        Result := Result + ',';
+    end;
+  end;
+end;
+
+procedure TSyncDiff.CheckRemotedIds(const aTableName: string);
+var
+  _sql: string;
+  _cds, _cds2: TClientDataset;
+  _list: string;
+  _saveSELECT: TStringList;
+  _arq: string;
+begin
+  _list := EmptyStr;
+  _sql := Format(SQLCHECKRemoteIds, [aTableName]);
+  _cds := FDiff2.GetDataFromSQL(_sql);
+  try
+    _list := Self.GetListFromCDS('IdRemoto', _cds);
+    if not _list.IsEmpty then
+    begin
+      _sql := 'SELECT * FROM ' +  aTableName + ' WHERE IdRemoto IN (' + _list+');';
+      Self.Log(aTableName, 'REGISTRO COM IDREMOTO DUPLICADO: "' + #13#10 + _sql);
+
+      _saveSELECT := TStringList.Create;
+      try
+        _arq := ExtractFilePath(ParamStr(0)) + '\SelectIdsDuplicados.txt';
+        if FileExists(_arq) then
+          _saveSELECT.LoadFromFile(_arq);
+
+        _saveSELECT.Add(StrUtils.DupeString('-',20));
+        _saveSELECT.Add(_sql);
+
+        _sql := 'SELECT Id'+aTableName + ' FROM ' +  aTableName + ' WHERE IdRemoto IN (' + _list +');';
+        _cds2 := FDiff2.GetDataFromSQL(_sql);
+        try
+          _list := Self.GetListFromCDS('Id'+aTableName, _cds2);
+          _sql := 'SELECT * FROM ' +  aTableName + ' WHERE Id' + aTableName + ' IN (' + _list+');';
+          _saveSELECT.Add(_sql);
+        finally
+          _cds2.Free;
+        end;
+
+        _saveSELECT.SaveToFile(_arq);
+
+        _sql := 'UPDATE ' + aTableName +' SET IDREMOTO=NULL WHERE IDREMOTO IN (' +
+                                        ' SELECT IDREMOTO' +
+                                        ' FROM ' + aTableName +
+                                        ' WHERE IDREMOTO > 0' +
+                                        ' GROUP BY IDREMOTO' +
+                                        ' HAVING COUNT(*) > 1' +
+                                        ')';
+      finally
+        _saveSELECT.Free;
+      end;
+     // FDiff2.ExecuteDirect(_sql);
+    end;
+  finally
+    _cds.Free;
+  end;
+
+end;
 
 procedure TSyncDiff.CompareDBWithCloud(aDataIntegradorClass: TDataIntegradorModuloWebHSClass);
 var
@@ -598,6 +681,8 @@ begin
       _cds1.Free;
     end;
 
+    Self.CheckRemotedIds(_DataWeb.nomeTabela);
+
     for _detail in _DataWeb.tabelasDetalhe do
     begin
       _sql := Format('SELECT FIRST 50 detail.* FROM %s detail JOIN %s master ON detail.%s = master.%s WHERE master.idremoto IN (%s) AND detail.version_id > 0 AND detail.SalvouRetaguarda = ''S''',
@@ -607,6 +692,7 @@ begin
         _IdRemotoDetailsList := Self.GetIdRemotoList(_cdsDetailLocal);
         Self.Log(Separator, '>>>> Verificando detalhe: ' + _detail.nomeTabela);
         Self.CompareCds1WithCds2(_detail, _cdsDetailLocal, _IdRemotoDetailsList);
+        Self.CheckRemotedIds(_detail.nomeTabela);
       finally
         _cdsDetailLocal.Free;
       end;
