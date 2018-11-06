@@ -454,7 +454,10 @@ begin
           if (i = aNumRegistros - 1) then
           begin
             aLastId := strToIntDef(node.selectSingleNode(dasherize(nomePKRemoto)).text, -1);
-            LastVersionId :=  strToIntDef(node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)).text, -1);
+            LastVersionId := -1;
+            if node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)) <> nil then
+              LastVersionId :=  strToIntDef(node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)).text, -1);
+
             if aUpdateLastVersionId and (aLastId > 0) and (LastVersionId > 0) then
               aDataIntegradorModuloWeb.UpdateVersionId(aLastId, LastVersionId);
           end;
