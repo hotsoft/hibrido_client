@@ -258,6 +258,7 @@ type
     procedure addMasterTableToJson(aDetailList: TDetailList; aDs: TDataSet; apStream: TStringStream); virtual;
     procedure RunDataSet(const aValorPK: integer; aTabelaDetalhe: TTabelaDetalhe; aProc: TAnonymousMethod); virtual;
     function GetIdRemoto(aDoc: IXMLDomDocument2): integer;
+    function GetVersionId(aDoc: IXMLDomDocument2): integer;
     function getXMLContentAsXMLDom(const aXMLContent: string): IXMLDomDocument2;
     procedure SetdmPrincipal(const Value: IDataPrincipal); virtual;
     function getdmPrincipal: IDataPrincipal; virtual;
@@ -1475,6 +1476,24 @@ begin
   end;
 end;
 
+function TDataIntegradorModuloWeb.GetVersionId(aDoc: IXMLDomDocument2): integer;
+begin
+  Result := -1;
+  try
+    if aDoc.selectSingleNode('//' + dasherize(nomeSingularSave) + '//version_id') <> nil then
+      Result := strToInt(aDoc.selectSingleNode('//' + dasherize(nomeSingularSave) + '//version-id').text)
+    else if aDoc.selectSingleNode('//hash//version-id') <> nil then
+      Result := strToInt(aDoc.selectSingleNode('//hash//version-id').text)
+    else
+      Result := StrToInt(aDoc.selectSingleNode('objects').selectSingleNode('object').selectSingleNode('version-id').text);
+  except
+    on e: Exception do
+    begin
+      Self.log('Erro ao ler Campo "Version_ID" no XML de retorno, Tabela: ' + nomeTabela + ' - ' + e.Message, 'Sync');
+    end;
+  end;
+end;
+
 function TDataIntegradorModuloWeb.getXMLContentAsXMLDom(const aXMLContent: string): IXMLDomDocument2;
 begin
   Result := nil;
@@ -1569,8 +1588,14 @@ begin
           if duasVias then
           begin
             idRemoto := Self.GetIdRemoto(Result);
-            if idRemoto > 0 then
-              txtUpdate := txtUpdate + ', idRemoto = ' + IntToStr(idRemoto);
+            if idRemoto > 0 then  //Salvar o valor do Version_ID como negativo apenas para controle, sendo ele o primeiro version_id de um registro novo
+            begin
+              //Se o registro não possui Version_ID ou Version_ID é menor do que zero, então é um NOVO registro, e esse novo Version_ID deve ser salvo como negativo nesse primeiro momento,
+              //depois no GET o version_ID verdadeiro (positivo) será salvo, isso foi feito para evitar inconsistencia no POST e GET de novos registros quando a sincronização é muito demorada
+              txtUpdate := txtUpdate + ', idRemoto = ' + IntToStr(idRemoto) +
+                           ', Version_ID =  case when version_id < 0 then ' + IntToStr(Self.GetVersionId(Result) * -1) +
+                                               ' else version_id end ';
+            end;
           end;
 
           txtUpdate := txtUpdate + ' WHERE ' + nomePKLocal + ' = ' + ds.fieldByName(nomePKLocal).AsString;
@@ -2067,13 +2092,18 @@ begin
         translation.lookupRemoteTable +
         ' WHERE ' + fk + ' = ' + ValorCampo);
       if lookupIdRemoto > 0 then
-        result := IntToStr(lookupIdRemoto)
+        result := IntToStr(lookupIdRemoto);
     end;
   end
   else
   begin
-    if field.FieldName.Trim.ToUpper.Equals('VERSION_ID') and ValorCampo.Trim.Equals('-1') then
-      result := cNullToServer
+    if field.FieldName.Trim.ToUpper.Equals('VERSION_ID') then
+    begin
+      if ValorCampo.Trim.Equals('-1') then
+        result := cNullToServer
+      else if StrToIntDef(ValorCampo, -1) < -1 then //Quando o valor for menor do que -1 significa que registro é novo e pode ter sido atualizado tanto no Client quanto no server antes de fazer o GET do version_id correto, esse tratamento evita um GET errado de um registro novo
+        result := IntToStr(ABS(StrToInt(ValorCampo)));
+    end
     else if field.DataType in [ftFloat, ftBCD, ftFMTBCD, ftCurrency] then
     begin
       result := StringReplace(ValorCampo, ',','.', [rfReplaceAll]);
