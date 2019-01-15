@@ -199,6 +199,7 @@ type
     paramsType: TParamsType;
     FOnException: TOnExceptionProcedure;
     FLastStream: TStringStream;
+    FIdRemotoAtual: Integer;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
@@ -270,6 +271,7 @@ type
     function getNomeSingular: string; virtual;
     procedure SetNomeSingular(const Value: string); virtual;
     function GetNomePlural: string; virtual;
+    function GetIdRemotoAtual: Integer; virtual;
     procedure setNomePlural(const Value: string); virtual;
     function GetNomePKLocal: string; virtual;
     procedure setNomePKLocal(const Value: string); virtual;
@@ -313,6 +315,7 @@ type
     property NomeSingular: string read getNomeSingular write SetNomeSingular;
     property nomePlural: string read GetNomePlural write setNomePlural;
     property nomePKLocal: string read GetNomePKLocal write setNomePKLocal;
+    property IdRemotoAtual: Integer read GetIdRemotoAtual;
     function getFieldDictionaryList: TFieldDictionaryList;
     function getTabelasDetalhe: TTabelaDetalheList;
     property EncodeJsonValues: boolean read FEncodeJsonValues write FEncodeJsonValues;
@@ -324,7 +327,8 @@ type
     property OnException: TOnExceptionProcedure read FOnException write SetOnException;
     function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean; virtual;
     procedure ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
-                                  aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+                                  aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
+                                  aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0);
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
   end;
 
@@ -422,7 +426,8 @@ begin
 end;
 
 procedure TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
-                                                       aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+                                                       aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
+                                                       aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0 );
 var
   doc: IXMLDomDocument2;
   list : IXMLDomNodeList;
@@ -430,6 +435,8 @@ var
   node : IXMLDomNode;
   LastVersionId: integer;
 begin
+  //aTabelaIgnorar e aIdRegistroIgnorar são usados na recursividade, um exame que foi importado e a requisição foi carregada de modo recursivo
+  //evita de salvar o exame duas vezes
   if (not (aRetornoStream.DataString.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
   begin
     doc := CoDOMDocument60.Create;
@@ -450,6 +457,8 @@ begin
         node := list.item[i];
         if node<>nil then
         begin
+          if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
+            continue;
           if not aDataIntegradorModuloWeb.importRecord(node) and aDataIntegradorModuloWeb.StopOnGetRecordError then
             Break;
           if (i = aNumRegistros - 1) then
@@ -663,6 +672,8 @@ begin
   //Preenche os Parametros
   for i := 0 to node.childNodes.length - 1 do
   begin
+    FIdRemotoAtual := StrToInt(node.selectSingleNode('id').text);
+
     if (node.childNodes[i].attributes.getNamedItem('type') <> nil) and (node.childNodes[i].attributes.getNamedItem('type').text = 'array') then
     begin
       if (ChildrenNodes <> nil) and (not ChildrenNodes.ContainsKey(node.childNodes[i].nodeName)) then
@@ -1375,6 +1386,11 @@ end;
 function TDataIntegradorModuloWeb.GetNomePKLocal: string;
 begin
   Result := Self.FnomePKLocal
+end;
+
+function TDataIntegradorModuloWeb.GetIdRemotoAtual: Integer;
+begin
+  Result := Self.FIdRemotoAtual
 end;
 
 function TDataIntegradorModuloWeb.GetNomePlural: string;
