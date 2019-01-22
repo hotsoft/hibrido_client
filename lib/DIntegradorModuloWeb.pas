@@ -159,7 +159,8 @@ type
     procedure addTabelaDetalheParamsIterate(valorPK: integer; params: TStringList);
     procedure ExecQuery(aQry: TSQLDataSet);
     function CheckQryCommandTextForDuasVias(const aId: integer;  Integrador: TDataIntegradorModuloWeb): string;
-    procedure UpdateVersionId(const aId, aLastVersionId: integer);
+    procedure UpdateLastVersionId(aLastVersionId: integer);
+    procedure UpdateVersionId(aId, aVersionId: integer);
     procedure resyncRecord(const aId: integer);
     function EscapeValueToServer(const aValue: string): string;
     procedure ResyncPostRecords(aPostQuery: TSQLDataSet; aDataIntegrador: TDataIntegradorModuloWeb);
@@ -200,6 +201,7 @@ type
     FOnException: TOnExceptionProcedure;
     FLastStream: TStringStream;
     FIdRemotoAtual: Integer;
+    FVersionIdAtual: Integer;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
@@ -272,6 +274,7 @@ type
     procedure SetNomeSingular(const Value: string); virtual;
     function GetNomePlural: string; virtual;
     function GetIdRemotoAtual: Integer; virtual;
+    function GetVersionIdAtual: Integer; virtual;
     procedure setNomePlural(const Value: string); virtual;
     function GetNomePKLocal: string; virtual;
     procedure setNomePKLocal(const Value: string); virtual;
@@ -316,6 +319,7 @@ type
     property nomePlural: string read GetNomePlural write setNomePlural;
     property nomePKLocal: string read GetNomePKLocal write setNomePKLocal;
     property IdRemotoAtual: Integer read GetIdRemotoAtual;
+    property VersionIdAtual: Integer read GetVersionIdAtual;
     function getFieldDictionaryList: TFieldDictionaryList;
     function getTabelasDetalhe: TTabelaDetalheList;
     property EncodeJsonValues: boolean read FEncodeJsonValues write FEncodeJsonValues;
@@ -469,7 +473,7 @@ begin
               LastVersionId :=  strToIntDef(node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)).text, -1);
 
             if aUpdateLastVersionId and (aLastId > 0) and (LastVersionId > 0) then
-              aDataIntegradorModuloWeb.UpdateVersionId(aLastId, LastVersionId);
+              aDataIntegradorModuloWeb.UpdateLastVersionId(LastVersionId);
           end;
         end;
       end;
@@ -484,7 +488,7 @@ begin
   Result := 'S';
 end;
 
-procedure TDataIntegradorModuloWeb.UpdateVersionId(const aId, aLastVersionId: integer);
+procedure TDataIntegradorModuloWeb.UpdateLastVersionId(aLastVersionId: integer);
 var
   qryVersionId: TSQLDataSet;
   _trans: TDBXTransaction;
@@ -498,6 +502,33 @@ begin
                                   'SalvouRetaguarda = ' + QuotedStr(Self.GetDefaultValueForSalvouRetaguarda) +
                                   ' WHERE ' + Self.getVersionFieldName + ' = (SELECT MAX(' + Self.getVersionFieldName + ') FROM ' + Self.nomeTabela +')';
       qryVersionId.ParamByName('NewVersion').AsInteger := aLastVersionId;
+
+      Self.ExecQuery(qryVersionId);
+    finally
+      qryVersionId.Free;
+    end;
+     dmPrincipal.commit(_trans);
+  except
+    dmPrincipal.rollBack(_trans);
+    raise;
+  end;
+end;
+
+procedure TDataIntegradorModuloWeb.UpdateVersionId(aId, aVersionId: integer);
+var
+  qryVersionId: TSQLDataSet;
+  _trans: TDBXTransaction;
+begin
+  _trans := dmPrincipal.startTransaction;
+  try
+    //se for o último registro do xml, atualizar o version_id
+    qryVersionId := dmPrincipal.getQuery;
+    try
+      qryVersionId.CommandText := 'UPDATE ' + Self.nomeTabela +' SET ' + Self.getVersionFieldName + ' = :NewVersion, '+
+                                  'SalvouRetaguarda = ' + QuotedStr(Self.GetDefaultValueForSalvouRetaguarda) +
+                                  ' WHERE idRemoto = :id  FROM ' + Self.nomeTabela +')';
+      qryVersionId.ParamByName('id').AsInteger := aId;
+      qryVersionId.ParamByName('NewVersion').AsInteger := aVersionId;
 
       Self.ExecQuery(qryVersionId);
     finally
@@ -673,6 +704,7 @@ begin
   for i := 0 to node.childNodes.length - 1 do
   begin
     FIdRemotoAtual := StrToInt(node.selectSingleNode('id').text);
+    FVersionIdAtual := StrToInt(node.selectSingleNode('version_id').text);
 
     if (node.childNodes[i].attributes.getNamedItem('type') <> nil) and (node.childNodes[i].attributes.getNamedItem('type').text = 'array') then
     begin
@@ -836,9 +868,12 @@ begin
     end;
 
     Self.SetQueryParameters(qry, DMLOperation, node, ChildrenNodes, Integrador);
-
+    _MaxVersionId := jaExiste(node, id, Integrador, _CustomWhere); //valida se já existe novamente devido recursividade chamada a partir da montagem da qry
     try
-      Self.ExecQuery(qry);
+      if (DMLOperation = dmUpdate) or (_MaxVersionId = 0) then
+        Self.ExecQuery(qry)
+      else //insert e registro já existe, apenas atualiza version_id devido recursividade já ter inserido o registro sem o version_id
+        Self.UpdateVersionId(Self.GetIdRemotoAtual, Self.GetVersionIdAtual);
     except
       on E: Exception do
       begin
@@ -1391,6 +1426,11 @@ end;
 function TDataIntegradorModuloWeb.GetIdRemotoAtual: Integer;
 begin
   Result := Self.FIdRemotoAtual
+end;
+
+function TDataIntegradorModuloWeb.GetVersionIdAtual: Integer;
+begin
+  Result := Self.FVersionIdAtual
 end;
 
 function TDataIntegradorModuloWeb.GetNomePlural: string;
