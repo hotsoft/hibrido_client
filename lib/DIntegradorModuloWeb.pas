@@ -704,7 +704,10 @@ begin
   for i := 0 to node.childNodes.length - 1 do
   begin
     FIdRemotoAtual := StrToInt(node.selectSingleNode('id').text);
-    FVersionIdAtual := StrToInt(node.selectSingleNode('version_id').text);
+    if node.selectSingleNode('version-id') <> nil then
+      FVersionIdAtual := StrToInt(node.selectSingleNode('version-id').text)
+    else
+      FVersionIdAtual := -1;
 
     if (node.childNodes[i].attributes.getNamedItem('type') <> nil) and (node.childNodes[i].attributes.getNamedItem('type').text = 'array') then
     begin
@@ -1857,6 +1860,7 @@ var
   _NameTranslation: TNameTranslation;
   _det: TTabelaDetalhe;
   _qryDetalhe: TSQLDataSet;
+  fkName: string;
  const
    UpdateFK = 'UPDATE %s SET SalvouRetaguarda = ''N'' WHERE %s = %d ';
 begin
@@ -1884,9 +1888,14 @@ begin
   begin
     if (not _NameTranslation.lookupRemoteTable.IsEmpty) then
     begin
+      if _NameTranslation.fkname <> '' then
+        fkName := _NameTranslation.fkName
+      else
+        fkName := _NameTranslation.pdv;
+
       if (aPostQuery.FieldByName(_NameTranslation.pdv).AsInteger > 0) then
         dmPrincipal.ExecuteDirect(Format(UpdateFK,[_NameTranslation.lookupRemoteTable,
-                                  _NameTranslation.pdv ,
+                                  fkName,
                                   aPostQuery.FieldByName(_NameTranslation.pdv).AsInteger ]));
     end;
   end;
