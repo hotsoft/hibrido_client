@@ -554,7 +554,7 @@ end;
 
 function TDataIntegradorModuloWeb.maxRecords: integer;
 begin
-  result := 0;
+  result := 500;
 end;
 
 function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode): boolean;
