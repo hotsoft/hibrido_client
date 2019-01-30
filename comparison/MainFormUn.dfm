@@ -50,7 +50,7 @@ object MainForm: TMainForm
     EditLabel.Height = 13
     EditLabel.Caption = 'Matriz'
     TabOrder = 2
-    Text = 'C:\DBs\TARDE_24-08-2018.FDB'
+    Text = 'D:\DBs\lab\26092018.FDB'
   end
   object Banco1Button: TBitBtn
     Left = 543

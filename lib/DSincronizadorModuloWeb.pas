@@ -197,7 +197,7 @@ begin
               begin
                 dm.rollback(_Trans);
                 if assigned(Self.FOnException) then
-                  Self.FOnException(haGet, dimw, E.ClassName, E.Message);
+                  Self.FOnException(haGet, dimw, E.ClassName, E.Message, 0);
                 if assigned (self.FDataLog) then
                 begin
                   SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);

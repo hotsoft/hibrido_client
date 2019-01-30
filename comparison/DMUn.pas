@@ -17,6 +17,7 @@ type
     { Public declarations }
     constructor Create(Aowner: TComponent; const aDatabase: string);
     function GetDataFromSQL(const aSQL: string): TClientDataSet;
+    function ExecuteDirect(const aSQL: string): integer;
   end;
 
 implementation
@@ -37,6 +38,11 @@ begin
   SQLConnection.Params.Values['Database'] := aDatabase;
   SQLConnection.ParamsLoaded := True;
   SQLConnection.Connected := True;
+end;
+
+function TDM.ExecuteDirect(const aSQL: string): integer;
+begin
+  Result := SQLConnection.ExecuteDirect(aSQL);
 end;
 
 function TDM.GetDataFromSQL(const aSQL: string): TClientDataSet;

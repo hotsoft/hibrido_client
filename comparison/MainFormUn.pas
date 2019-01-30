@@ -27,6 +27,7 @@ type
     procedure OnCompare(const aTableName, aDiff: string);
     procedure OnDiffRecord(const aTableName: string; const aRecordCount,
       aRecno: integer);
+    function FormatInClock(TickCount: Integer): string;
     { Private declarations }
   public
     { Public declarations }
@@ -58,14 +59,64 @@ begin
   Banco2Edit.Text := self.SelectFile;
 end;
 
+//esta função para ser usada em conjunto com o getTickCount
+function  TMainForm.FormatInClock(TickCount: Integer): string;
+var
+  Days:   Integer;
+  Hours:  Integer;
+  Minutes:Integer;
+  Seconds:Integer;
+  MSecs:  Integer;
+  S_DAY:  string;
+  S_HUR:  string;
+  S_MIN:  string;
+  S_SEC:  string;
+  S_MSC:  string;
+begin
+  Result := '00:00:00:00:000';
+  if (TickCount>0) then
+  try
+    MSecs := TickCount mod 1000;
+    S_MSC := IntToStr(MSecs);
+    TickCount := TickCount div 1000;
+
+    Seconds := TickCount mod 60;
+    TickCount := TickCount div 60;
+    S_SEC := IntToStr(Seconds);
+
+    Minutes := TickCount mod 60;
+    TickCount := TickCount div 60;
+    S_MIN := IntToStr(Minutes);
+
+    Hours := TickCount mod 60;
+    TickCount := TickCount div 60;
+    S_HUR := IntToStr(Hours);
+
+    Days := TickCount;
+    S_DAY := IntToStr(Days);
+  finally
+    Result := S_DAY
+            + FormatSettings.TimeSeparator
+            + S_HUR
+            + FormatSettings.TimeSeparator
+            + S_MIN
+            + FormatSettings.TimeSeparator
+            + S_SEC
+            + FormatSettings.TimeSeparator
+            + S_MSC;
+  end;
+end;
+
 procedure TMainForm.OkButtonClick(Sender: TObject);
 var
   DMBanco1, DMBanco2: ISQLDiff;
   _SyncDiff: TSyncDiff;
+  _Start: cardinal;
 begin
   Memo.Clear;
   DMBanco1 := nil;
   DMBanco2 := nil;
+  _Start := GetTickCount;
   if Banco1Edit.Text <> EmptyStr then
     DMBanco1 := TDM.Create(Self, Banco1Edit.Text);
   if Banco2Edit.Text <> EmptyStr then
@@ -81,6 +132,7 @@ begin
   end;
   TableLabel.Caption := EmptyStr;
   ProgressBar.Position := 0;
+  Memo.Lines.Add('Verificação executada em: ' + FormatInClock (GetTickCount - _Start));
 end;
 
 procedure TMainForm.OnCompare(const aTableName, aDiff: string);
