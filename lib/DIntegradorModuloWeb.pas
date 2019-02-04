@@ -1237,8 +1237,9 @@ begin
   RunDataSet(aValorPk, aTabelaDetalhe,
              procedure (aDataSet: TDataSet)
              var
-               nomeParametro: string;
+               nomeParametro, fileName, hora, campo: string;
                Dict: TStringDictionary;
+               _File: TextFile;
              begin
                if (aDetailList <> nil) and (not aDetailList.ContainsKey(aTabelaDetalhe.nomeParametro)) then
                begin
@@ -1253,6 +1254,22 @@ begin
                else
                  jsonArrayDetails := aDetailList.Items[aTabelaDetalhe.nomeParametro];
                Dict := Self.DataSetToArray(aDataSet);
+               if aTabelaDetalhe.FnomeSingular = 'exame' then
+               begin
+                 try
+                   if not DirectoryExists((ExtractFilePath(Application.ExeName)+'\json_exames')) then
+                     ForceDirectories(ExtractFilePath(Application.ExeName)+'\json_exames\');
+                   DateTimeToString(hora,'ddmmyyyyhhnnss', now);
+                   fileName := ExtractFilePath(Application.ExeName)+'\json_exames\'+Dict['IDEXAME']+'_'+hora+'.txt';
+                   AssignFile(_File, fileName);
+                   Rewrite(_File);
+                   for campo in Dict.keys do
+                     WriteLn(_File, campo+':'+Dict[campo]);
+                 finally
+                   Closefile(_File);
+                 end;
+               end;
+
                try
                  jsonArrayDetails.getJsonArray.AddElement(Self.getJsonObject(aDataSet, aTabelaDetalhe.translations, Dict, aTabelaDetalhe.nomeParametro));
                  aTabelaDetalhe.SelectDetailsIterate(aDetailList, aDataSet.fieldByName(aTabelaDetalhe.nomePKLocal).AsInteger);
