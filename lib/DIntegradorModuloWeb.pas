@@ -1259,7 +1259,7 @@ begin
                finally
                  Dict.Free;
                end;
-            end);
+             end);
 end;
 
 
