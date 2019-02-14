@@ -153,7 +153,6 @@ end;
 procedure TDataSincronizadorModuloWeb.getUpdatedData;
 var
   i: integer;
-  block: TServerToClientBlock;
   dm: IDataPrincipal;
   http: TidHTTP;
   dimw: TDataIntegradorModuloWeb;
@@ -190,7 +189,6 @@ begin
               dimw.DataLog := Self.FDataLog;
               dimw.getDadosAtualizados;
               if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
-              inc(i);
               dm.commit(_Trans);
             except
               on E: Exception do

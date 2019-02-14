@@ -232,8 +232,7 @@ type
     procedure updateSingletonRecord(node: IXMLDOMNode);
     function getOrderBy: string; virtual;
     procedure addMoreParams(ds: TDataSet; params: TStringList); virtual;
-    procedure prepareMultipartParams(ds: TDataSet;
-      multipartParams: TIdMultiPartFormDataStream); virtual; abstract;
+//    procedure prepareMultipartParams(ds: TDataSet; multipartParams: TIdMultiPartFormDataStream); virtual; abstract;
     function singleton: boolean;
     function getUpdateBaseSQL(node: IXMLDOMNode; Integrador: TDataIntegradorModuloWeb): string;
     procedure addDetails(ds: TDataSet; params: TStringList);
@@ -242,7 +241,7 @@ type
       translations: TTranslationSet; nestedAttribute: string = ''): IXMLDomDocument2;
     function getAdditionalSaveConditions: string; virtual;
     function gerenciaRedirecionamentos(idLocal, idRemoto: integer): boolean; virtual;
-    function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
+//    function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
     function maxRecords: integer; virtual;
     function getTimeoutValue: integer; virtual;
     function getDateFormat: String; virtual;
@@ -367,7 +366,7 @@ var
   DataIntegradorModuloWeb: TDataIntegradorModuloWeb;
 implementation
 
-uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn, MSHTML, HibridoConsts;
+uses ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn, MSHTML, HibridoConsts;
 
 {$R *.dfm}
 
@@ -716,7 +715,7 @@ begin
     end;
 
     name := LowerCase(translateFieldNameServerToPdv(node.childNodes.item[i], Integrador));
-    ValorCampo := translateFieldValue(node.childNodes.item[i], Integrador);
+    ValorCampo := UTF8Encode(translateFieldValue(node.childNodes.item[i], Integrador));
     if name <> '*' then
       if Self.getIncludeFieldNameOnList(DMLOperation, name, Integrador) then
       begin
@@ -733,35 +732,35 @@ begin
           if Field <> nil then
           begin
             case Field.DataType of
-              ftString, ftMemo: qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(ValorCampo);
-              ftInteger: qry.ParamByName(name).AsInteger := StrToInt(ValorCampo);
-              ftLargeint: qry.ParamByName(name).AsLargeInt := StrToInt(ValorCampo);
+              ftString, ftMemo: qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(UTF8ToString(ValorCampo));
+              ftInteger: qry.ParamByName(name).AsInteger := StrToInt(UTF8ToString(ValorCampo));
+              ftLargeint: qry.ParamByName(name).AsLargeInt := StrToInt(UTF8ToString(ValorCampo));
               ftDateTime, ftTimeStamp:
                 begin
-                  ValorCampo := StringReplace(ValorCampo, '''','', [rfReplaceAll]);
-                  ValorCampo := Trim(StringReplace(ValorCampo, '.','/', [rfReplaceAll]));
+                  ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '''','', [rfReplaceAll]));
+                  ValorCampo := UTF8Encode(Trim(StringReplace(UTF8ToString(ValorCampo), '.','/', [rfReplaceAll])));
                   lFormatSettings.DateSeparator := '/';
                   lFormatSettings.TimeSeparator := ':';
                   lFormatSettings.ShortDateFormat := 'dd/MM/yyyy hh:mm:ss';
-                  qry.ParamByName(name).AsDateTime := StrToDateTime(ValorCampo, lFormatSettings);
+                  qry.ParamByName(name).AsDateTime := StrToDateTime(UTF8ToString(ValorCampo), lFormatSettings);
                 end;
               ftCurrency, ftTime:
                 begin
-                  ValorCampo := StringReplace(ValorCampo, '''','', [rfReplaceAll]);
-                  qry.ParamByName(name).AsCurrency := StrToCurr(ValorCampo);
+                  ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '''','', [rfReplaceAll]));
+                  qry.ParamByName(name).AsCurrency := StrToCurr(UTF8ToString(ValorCampo));
                 end;
               ftSingle, ftFloat, ftFMTBcd:
               begin
-                ValorCampo := StringReplace(ValorCampo, '.', ',',[rfReplaceAll]);
-                ValorCampo := StringReplace(ValorCampo, '''','', [rfReplaceAll]);
-                qry.ParamByName(name).AsFloat := StrToFloat(ValorCampo);
+                ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '.', ',',[rfReplaceAll]));
+                ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '''','', [rfReplaceAll]));
+                qry.ParamByName(name).AsFloat := StrToFloat(UTF8ToString(ValorCampo));
               end;
               ftBlob:
               begin
-                qry.ParamByName(name).LoadFromStream(self.BinaryFromBase64(ValorCampo), ftBlob);
+                qry.ParamByName(name).LoadFromStream(self.BinaryFromBase64(UTF8ToString(ValorCampo)), ftBlob);
               end
             else
-              qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(ValorCampo);
+              qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(UTF8ToString(ValorCampo));
             end;
           end;
         end;
@@ -800,7 +799,6 @@ end;
 procedure TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb);
 var
   i: integer;
-  name: string;
   qry: TSQLDataSet;
   FieldsListUpdate, FieldsListInsert : string;
   NewId: integer;
@@ -818,7 +816,6 @@ var
   _CustomWhere: string;
   _WhereInUpdate: String;
 begin
-  NewId := 0;
   _CustomWhere := EmptyStr;
   _WhereInUpdate := EmptyStr;
   _MaxVersionId := jaExiste(node, id, Integrador, _CustomWhere);
@@ -1311,7 +1308,6 @@ var
   nome: String;
   value: String;
   fieldValue: string;
-  BlobStream: TStringStream;
   FieldStream: TStream;
   Input: TMemoryStream;
 begin
@@ -1384,7 +1380,7 @@ begin
           aDs.fieldByName(aTranslations.get(i).pdv), aNestedAttribute, aTranslations.get(i).fkName, fieldValue);
       if not JsonObjectHasPair(nome, Result) then
       begin
-        StringUTF8 := Self.EscapeValueToServer(valor);
+        StringUTF8 := UTF8Encode(Self.EscapeValueToServer(valor));
         if Self.encodeJsonValues then
         begin
           if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
@@ -1392,7 +1388,7 @@ begin
           else if StringUTF8 = '' then
             Result.AddPair(nome, TIdEncoderMIME.EncodeString(cNullToServer, IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
           else
-            Result.AddPair(nome, TIdEncoderMIME.EncodeString(StringUTF8, IndyTextEncoding_UTF8))
+            Result.AddPair(nome, TIdEncoderMIME.EncodeString(UTF8ToString(StringUTF8), IndyTextEncoding_UTF8))
         end
         else
           Result.AddPair(nome, valor);
@@ -1625,7 +1621,7 @@ begin
           multiPartParams := TIdMultiPartFormDataStream.Create;
           stream := TStringStream.Create('',TEncoding.UTF8);
           try
-            prepareMultipartParams(ds, multipartParams );
+          //  prepareMultipartParams(ds, multipartParams );
             http.Post(getRequestUrlForAction(true, -1), multipartParams, stream);
             xmlContent := stream.ToString;
           finally
@@ -1747,10 +1743,10 @@ begin
         begin
           node := list.FindNode('error');
           if node <> nil then
-            Result := Trim(Result + UTF8ToString(HTTPDecode(node.Text)));
+            Result := Trim(Result + UTF8ToString(HTTPDecode(AnsiString(node.Text))));
         end
         else if list.FindNode('errors').IsTextElement then
-          Result := UTF8ToString(HTTPDecode(list.FindNode('errors').Text))
+          Result := UTF8ToString(HTTPDecode(AnsiString(list.FindNode('errors').Text)))
         else
           Result := aErro;
       end;
@@ -2306,10 +2302,10 @@ end;
 
 function TDataIntegradorModuloWeb.getdmPrincipal: IDataPrincipal;
 begin
-  if FdmPrincipal = nil then
-  begin
-    FdmPrincipal := getNewDataPrincipal;
-  end;
+//  if FdmPrincipal = nil then
+//  begin
+//    FdmPrincipal := getNewDataPrincipal;
+//  end;
   result := FdmPrincipal;
 end;
 
