@@ -164,6 +164,8 @@ type
     procedure resyncRecord(const aId: integer);
     function EscapeValueToServer(const aValue: string): string;
     procedure ResyncPostRecords(aPostQuery: TSQLDataSet; aDataIntegrador: TDataIntegradorModuloWeb);
+    function SalvouRetaguardaStatus(pNomeTabela: String): String;
+    function GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String): Int64;
     const
       SQLFK =
         ' SELECT'+
@@ -817,6 +819,7 @@ var
   _MaxVersionId: integer;
   _CustomWhere: string;
   _WhereInUpdate: String;
+  Version_ID_From_Server: Int64;
 begin
   NewId := 0;
   _CustomWhere := EmptyStr;
@@ -874,7 +877,19 @@ begin
     _MaxVersionId := jaExiste(node, id, Integrador, _CustomWhere); //valida se já existe novamente devido recursividade chamada a partir da montagem da qry
     try
       if (DMLOperation = dmUpdate) or (_MaxVersionId = 0) then
+      begin
+        if (DMLOperation = dmUpdate) and (self.SalvouRetaguardaStatus(Integrador.nomeTabela) = 'N') then
+        begin
+          Version_ID_From_Server := self.GetVersionIdFromServer(Self.GetIdRemotoAtual, Integrador.NomeSingular);
+          if Version_ID_From_Server > 0 then  //Caso o registro tenha sido alterado logo após o POST, nesse caso o GET precisa desse tratamento
+          begin
+            qry.CommandText := 'UPDATE ' + Integrador.nomeTabela + ' SET Version_ID = :version_id where IdRemoto = :IdRemoto and Version_ID < :version_id';
+            qry.ParamByName('version_id').AsLargeInt := Version_ID_From_Server;
+            qry.ParamByName('IdRemoto').AsInteger :=  Self.GetIdRemotoAtual;
+          end;
+        end;
         Self.ExecQuery(qry)
+      end
       else //insert e registro já existe, apenas atualiza version_id devido recursividade já ter inserido o registro sem o version_id
         Self.UpdateVersionId(Self.GetIdRemotoAtual, Self.GetVersionIdAtual);
     except
@@ -917,6 +932,37 @@ begin
   finally
     FreeAndNil(qry);
     FreeAndNil(ChildrenNodes);
+  end;
+end;
+
+function TDataIntegradorModuloWeb.GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String) : Int64;
+var
+  http: TidHTTP;
+begin
+  http := getHTTPInstance;
+  http.OnWork := Self.OnWorkHandler;
+  http.ConnectTimeout := Self.getTimeoutValue;
+  http.ReadTimeout := Self.getTimeoutValue;
+  try
+    Result := StrToInt64Def(http.Get(self.getURL + 'get_my_last_post_version_ids' + '/' + IntToStr(pIdRemoto) + '?' + self.getDefaultParams + '&model_class='+pNomeTabela),0);
+  finally
+    FreeAndNil(http);
+  end;
+end;
+
+function TDataIntegradorModuloWeb.SalvouRetaguardaStatus(pNomeTabela: String): String;
+var
+  qry: TSQLDataSet;
+begin
+  Result := '';
+  qry := dmPrincipal.getQuery;
+  try
+    qry.CommandText := 'select SalvouRetaguarda from ' + pNomeTabela + ' where idremoto = ' + IntToStr(Self.GetIdRemotoAtual);
+    qry.Open;
+    if (qry.RecordCount > 0) and (qry.FieldByName('SalvouRetaguarda').AsString <> '') then
+      Result := qry.FieldByName('SalvouRetaguarda').AsString;
+  finally
+    FreeAndNil(qry);
   end;
 end;
 
