@@ -883,7 +883,7 @@ begin
           Version_ID_From_Server := self.GetVersionIdFromServer(Self.GetIdRemotoAtual, Integrador.NomeSingular);
           if Version_ID_From_Server > 0 then  //Caso o registro tenha sido alterado logo após o POST, nesse caso o GET precisa desse tratamento
           begin
-            qry.CommandText := 'UPDATE ' + Integrador.nomeTabela + ' SET Version_ID = :version_id where IdRemoto = :IdRemoto';
+            qry.CommandText := 'UPDATE ' + Integrador.nomeTabela + ' SET Version_ID = :version_id where IdRemoto = :IdRemoto and Version_ID < :version_id';
             qry.ParamByName('version_id').AsLargeInt := Version_ID_From_Server;
             qry.ParamByName('IdRemoto').AsInteger :=  Self.GetIdRemotoAtual;
           end;
