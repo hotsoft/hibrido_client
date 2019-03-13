@@ -308,7 +308,7 @@ type
     procedure afterDadosAtualizados; virtual;
     function getHumanReadableName: string; virtual;
     property DataLog: ILog read FDataLog write SetDataLog;
-    constructor Create(AOwner: TComponent; aHTTP: TIdHTTP); virtual;
+    constructor CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP); virtual;
     destructor Destroy; override;
     function getNomeTabela: string; virtual;
     procedure setNomeTabela(const Value: string); virtual;
@@ -357,7 +357,7 @@ type
     procedure setNomeParametro(const Value: string); virtual;
     function getNewId(node: IXMLDomNode): Integer; override;
   public
-    constructor Create(AOwner: TComponent; aHTTP: TIdHTTP); override;
+    constructor CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP); override;
     destructor Destroy; override;
     property nomeParametro: string read GetNomeParametro write setNomeParametro;
   end;
@@ -2088,7 +2088,7 @@ begin
       end;
 end;
 
-constructor TDataIntegradorModuloWeb.Create(AOwner: TComponent; aHTTP: TIdHTTP);
+constructor TDataIntegradorModuloWeb.CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP);
 begin
   inherited Create(AOwner);
   verbose := false;
@@ -2343,7 +2343,7 @@ end;
 
 { TTabelaDetalhe }
 
-constructor TTabelaDetalhe.Create(AOwner: TComponent; aHTTP: TIdHTTP);
+constructor TTabelaDetalhe.CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP);
 begin
   inherited;
   translations := TTranslationSet.create(nil);
