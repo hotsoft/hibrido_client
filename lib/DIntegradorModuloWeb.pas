@@ -159,10 +159,13 @@ type
     procedure addTabelaDetalheParamsIterate(valorPK: integer; params: TStringList);
     procedure ExecQuery(aQry: TSQLDataSet);
     function CheckQryCommandTextForDuasVias(const aId: integer;  Integrador: TDataIntegradorModuloWeb): string;
-    procedure UpdateVersionId(const aId, aLastVersionId: integer);
+    procedure UpdateLastVersionId(aLastVersionId: integer);
+    procedure UpdateVersionId(aId, aVersionId: integer);
     procedure resyncRecord(const aId: integer);
     function EscapeValueToServer(const aValue: string): string;
     procedure ResyncPostRecords(aPostQuery: TSQLDataSet; aDataIntegrador: TDataIntegradorModuloWeb);
+    function SalvouRetaguardaStatus(pNomeTabela: String): String;
+    function GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String): Int64;
     const
       SQLFK =
         ' SELECT'+
@@ -199,6 +202,8 @@ type
     paramsType: TParamsType;
     FOnException: TOnExceptionProcedure;
     FLastStream: TStringStream;
+    FIdRemotoAtual: Integer;
+    FVersionIdAtual: Integer;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
@@ -270,6 +275,8 @@ type
     function getNomeSingular: string; virtual;
     procedure SetNomeSingular(const Value: string); virtual;
     function GetNomePlural: string; virtual;
+    function GetIdRemotoAtual: Integer; virtual;
+    function GetVersionIdAtual: Integer; virtual;
     procedure setNomePlural(const Value: string); virtual;
     function GetNomePKLocal: string; virtual;
     procedure setNomePKLocal(const Value: string); virtual;
@@ -313,6 +320,8 @@ type
     property NomeSingular: string read getNomeSingular write SetNomeSingular;
     property nomePlural: string read GetNomePlural write setNomePlural;
     property nomePKLocal: string read GetNomePKLocal write setNomePKLocal;
+    property IdRemotoAtual: Integer read GetIdRemotoAtual;
+    property VersionIdAtual: Integer read GetVersionIdAtual;
     function getFieldDictionaryList: TFieldDictionaryList;
     function getTabelasDetalhe: TTabelaDetalheList;
     property EncodeJsonValues: boolean read FEncodeJsonValues write FEncodeJsonValues;
@@ -324,7 +333,8 @@ type
     property OnException: TOnExceptionProcedure read FOnException write SetOnException;
     function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean; virtual;
     procedure ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
-                                  aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+                                  aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
+                                  aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0);
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
   end;
 
@@ -422,7 +432,8 @@ begin
 end;
 
 procedure TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
-                                                       aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True);
+                                                       aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
+                                                       aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0 );
 var
   doc: IXMLDomDocument2;
   list : IXMLDomNodeList;
@@ -430,6 +441,8 @@ var
   node : IXMLDomNode;
   LastVersionId: integer;
 begin
+  //aTabelaIgnorar e aIdRegistroIgnorar são usados na recursividade, um exame que foi importado e a requisição foi carregada de modo recursivo
+  //evita de salvar o exame duas vezes
   if (not (aRetornoStream.DataString.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
   begin
     doc := CoDOMDocument60.Create;
@@ -450,6 +463,8 @@ begin
         node := list.item[i];
         if node<>nil then
         begin
+          if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
+            continue;
           if not aDataIntegradorModuloWeb.importRecord(node) and aDataIntegradorModuloWeb.StopOnGetRecordError then
             Break;
           if (i = aNumRegistros - 1) then
@@ -460,7 +475,7 @@ begin
               LastVersionId :=  strToIntDef(node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)).text, -1);
 
             if aUpdateLastVersionId and (aLastId > 0) and (LastVersionId > 0) then
-              aDataIntegradorModuloWeb.UpdateVersionId(aLastId, LastVersionId);
+              aDataIntegradorModuloWeb.UpdateLastVersionId(LastVersionId);
           end;
         end;
       end;
@@ -475,7 +490,7 @@ begin
   Result := 'S';
 end;
 
-procedure TDataIntegradorModuloWeb.UpdateVersionId(const aId, aLastVersionId: integer);
+procedure TDataIntegradorModuloWeb.UpdateLastVersionId(aLastVersionId: integer);
 var
   qryVersionId: TSQLDataSet;
   _trans: TDBXTransaction;
@@ -501,6 +516,33 @@ begin
   end;
 end;
 
+procedure TDataIntegradorModuloWeb.UpdateVersionId(aId, aVersionId: integer);
+var
+  qryVersionId: TSQLDataSet;
+  _trans: TDBXTransaction;
+begin
+  _trans := dmPrincipal.startTransaction;
+  try
+    //se for o último registro do xml, atualizar o version_id
+    qryVersionId := dmPrincipal.getQuery;
+    try
+      qryVersionId.CommandText := 'UPDATE ' + Self.nomeTabela +' SET ' + Self.getVersionFieldName + ' = :NewVersion, '+
+                                  'SalvouRetaguarda = ' + QuotedStr(Self.GetDefaultValueForSalvouRetaguarda) +
+                                  ' WHERE idRemoto = :id  FROM ' + Self.nomeTabela +')';
+      qryVersionId.ParamByName('id').AsInteger := aId;
+      qryVersionId.ParamByName('NewVersion').AsInteger := aVersionId;
+
+      Self.ExecQuery(qryVersionId);
+    finally
+      qryVersionId.Free;
+    end;
+     dmPrincipal.commit(_trans);
+  except
+    dmPrincipal.rollBack(_trans);
+    raise;
+  end;
+end;
+
 
 function TDataIntegradorModuloWeb.getHTTP: TIdHTTP;
 begin
@@ -514,7 +556,7 @@ end;
 
 function TDataIntegradorModuloWeb.maxRecords: integer;
 begin
-  result := 0;
+  result := 500;
 end;
 
 function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode): boolean;
@@ -663,6 +705,12 @@ begin
   //Preenche os Parametros
   for i := 0 to node.childNodes.length - 1 do
   begin
+    FIdRemotoAtual := StrToInt(node.selectSingleNode('id').text);
+    if node.selectSingleNode('version-id') <> nil then
+      FVersionIdAtual := StrToInt(node.selectSingleNode('version-id').text)
+    else
+      FVersionIdAtual := -1;
+
     if (node.childNodes[i].attributes.getNamedItem('type') <> nil) and (node.childNodes[i].attributes.getNamedItem('type').text = 'array') then
     begin
       if (ChildrenNodes <> nil) and (not ChildrenNodes.ContainsKey(node.childNodes[i].nodeName)) then
@@ -771,6 +819,7 @@ var
   _MaxVersionId: integer;
   _CustomWhere: string;
   _WhereInUpdate: String;
+  Version_ID_From_Server: Int64;
 begin
   NewId := 0;
   _CustomWhere := EmptyStr;
@@ -825,9 +874,24 @@ begin
     end;
 
     Self.SetQueryParameters(qry, DMLOperation, node, ChildrenNodes, Integrador);
-
+    _MaxVersionId := jaExiste(node, id, Integrador, _CustomWhere); //valida se já existe novamente devido recursividade chamada a partir da montagem da qry
     try
-      Self.ExecQuery(qry);
+      if (DMLOperation = dmUpdate) or (_MaxVersionId = 0) then
+      begin
+        if (DMLOperation = dmUpdate) and (self.SalvouRetaguardaStatus(Integrador.nomeTabela) = 'N') then
+        begin
+          Version_ID_From_Server := self.GetVersionIdFromServer(Self.GetIdRemotoAtual, Integrador.NomeSingular);
+          if Version_ID_From_Server > 0 then  //Caso o registro tenha sido alterado logo após o POST, nesse caso o GET precisa desse tratamento
+          begin
+            qry.CommandText := 'UPDATE ' + Integrador.nomeTabela + ' SET Version_ID = :version_id where IdRemoto = :IdRemoto and Version_ID < :version_id';
+            qry.ParamByName('version_id').AsLargeInt := Version_ID_From_Server;
+            qry.ParamByName('IdRemoto').AsInteger :=  Self.GetIdRemotoAtual;
+          end;
+        end;
+        Self.ExecQuery(qry)
+      end
+      else //insert e registro já existe, apenas atualiza version_id devido recursividade já ter inserido o registro sem o version_id
+        Self.UpdateVersionId(Self.GetIdRemotoAtual, Self.GetVersionIdAtual);
     except
       on E: Exception do
       begin
@@ -868,6 +932,37 @@ begin
   finally
     FreeAndNil(qry);
     FreeAndNil(ChildrenNodes);
+  end;
+end;
+
+function TDataIntegradorModuloWeb.GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String) : Int64;
+var
+  http: TidHTTP;
+begin
+  http := getHTTPInstance;
+  http.OnWork := Self.OnWorkHandler;
+  http.ConnectTimeout := Self.getTimeoutValue;
+  http.ReadTimeout := Self.getTimeoutValue;
+  try
+    Result := StrToInt64Def(http.Get(self.getURL + 'get_my_last_post_version_ids' + '/' + IntToStr(pIdRemoto) + '?' + self.getDefaultParams + '&model_class='+pNomeTabela),0);
+  finally
+    FreeAndNil(http);
+  end;
+end;
+
+function TDataIntegradorModuloWeb.SalvouRetaguardaStatus(pNomeTabela: String): String;
+var
+  qry: TSQLDataSet;
+begin
+  Result := '';
+  qry := dmPrincipal.getQuery;
+  try
+    qry.CommandText := 'select SalvouRetaguarda from ' + pNomeTabela + ' where idremoto = ' + IntToStr(Self.GetIdRemotoAtual);
+    qry.Open;
+    if (qry.RecordCount > 0) and (qry.FieldByName('SalvouRetaguarda').AsString <> '') then
+      Result := qry.FieldByName('SalvouRetaguarda').AsString;
+  finally
+    FreeAndNil(qry);
   end;
 end;
 
@@ -1377,6 +1472,16 @@ begin
   Result := Self.FnomePKLocal
 end;
 
+function TDataIntegradorModuloWeb.GetIdRemotoAtual: Integer;
+begin
+  Result := Self.FIdRemotoAtual
+end;
+
+function TDataIntegradorModuloWeb.GetVersionIdAtual: Integer;
+begin
+  Result := Self.FVersionIdAtual
+end;
+
 function TDataIntegradorModuloWeb.GetNomePlural: string;
 begin
   Result := Self.FNomePlural
@@ -1801,6 +1906,7 @@ var
   _NameTranslation: TNameTranslation;
   _det: TTabelaDetalhe;
   _qryDetalhe: TSQLDataSet;
+  fkName: string;
  const
    UpdateFK = 'UPDATE %s SET SalvouRetaguarda = ''N'' WHERE %s = %d ';
 begin
@@ -1828,9 +1934,14 @@ begin
   begin
     if (not _NameTranslation.lookupRemoteTable.IsEmpty) then
     begin
+      if _NameTranslation.fkname <> '' then
+        fkName := _NameTranslation.fkName
+      else
+        fkName := _NameTranslation.pdv;
+
       if (aPostQuery.FieldByName(_NameTranslation.pdv).AsInteger > 0) then
         dmPrincipal.ExecuteDirect(Format(UpdateFK,[_NameTranslation.lookupRemoteTable,
-                                  _NameTranslation.pdv ,
+                                  fkName,
                                   aPostQuery.FieldByName(_NameTranslation.pdv).AsInteger ]));
     end;
   end;
