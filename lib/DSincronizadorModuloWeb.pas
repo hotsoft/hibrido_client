@@ -4,7 +4,8 @@ interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-  ISincronizacaoNotifierUnit, IdHTTP,  System.Generics.Collections, Data.DBXJSON, Data.DBXCommon;
+  ISincronizacaoNotifierUnit, IdHTTP,  System.Generics.Collections, Data.DBXJSON, Data.DBXCommon,
+  Data.SqlExpr, Data.FMTBcd, Datasnap.DBClient, osClientDataset, Datasnap.Provider, Data.DB;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
@@ -20,6 +21,21 @@ type
 
   TDataSincronizadorModuloWeb = class(TDataModule)
     sincronizaRetaguardaTimer: TTimer;
+    FilaDataSet: TSQLDataSet;
+    FilaProvider: TDataSetProvider;
+    FilaClientDataSet: TosClientDataset;
+    FilaDataSetIDHIBRIDOFILASINCRONIZACAO: TLargeintField;
+    FilaDataSetTABELA: TStringField;
+    FilaDataSetID: TIntegerField;
+    FilaDataSetTENTATIVAS: TIntegerField;
+    FilaDataSetULTIMATENTATIVA: TSQLTimeStampField;
+    FilaDataSetOPERACAO: TStringField;
+    FilaClientDataSetIDHIBRIDOFILASINCRONIZACAO: TLargeintField;
+    FilaClientDataSetTABELA: TStringField;
+    FilaClientDataSetID: TIntegerField;
+    FilaClientDataSetTENTATIVAS: TIntegerField;
+    FilaClientDataSetULTIMATENTATIVA: TSQLTimeStampField;
+    FilaClientDataSetOPERACAO: TStringField;
     procedure DataModuleCreate(Sender: TObject);
     procedure sincronizaRetaguardaTimerTimer(Sender: TObject);
   private
@@ -110,7 +126,6 @@ type
 
 var
   DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb;
-  salvandoRetaguarda, gravandoVenda: boolean;
 
 implementation
 
@@ -224,8 +239,6 @@ procedure TDataSincronizadorModuloWeb.DataModuleCreate(Sender: TObject);
 begin
   sincronizaRetaguardaTimer.Enabled := false;
   atualizando := false;
-  salvandoRetaguarda := false;
-  gravandoVenda := false;
   Self.FposterDataModules := TPosterDataModules.Create;
   Self.FgetterBlocks := TGetterBlocks.Create;
 end;
@@ -458,50 +471,74 @@ var
   http: TIdHTTP;
   lTranslateTableNames: TJsonDictionary;
   JsonSetting: TJsonSetting;
+  Salvou: Boolean;
 begin
   inherited;
-  if salvandoRetaguarda or gravandoVenda then exit;
   if Self.Fnotifier <> nil then
     Synchronize(setMainFormPuttingTrue);
-  salvandoRetaguarda := true;
   try
     CoInitializeEx(nil, 0);
     try
       http := nil;
-      if gravandoVenda then exit;
       dm := sincronizador.getNewDataPrincipal;
       try
         try
           http := getHTTPInstance;
           lTranslateTableNames := TJsonDictionary.Create;
           Self.PopulateTranslatedTableNames(lTranslateTableNames);
-
-          for i := 0 to sincronizador.posterDataModules.Count - 1 do
+          sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
+          sincronizador.FilaClientDataSet.Open;
+          Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
+          sincronizador.FilaClientDataSet.First;
+          while not sincronizador.FilaClientDataSet.Eof do
           begin
-            if not Self.ShouldContinue then
-              Break;
-
-            dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
-            try
-              JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
-              if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or
-                ((JsonSetting = nil) and (not Self.FRestrictPosters)) then
-              begin
-                if (JsonSetting <> nil) then
-                  dmIntegrador.SetStatementForPost(JsonSetting.PostStatement);
-                dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
-                dmIntegrador.notifier := FNotifier;
-                dmIntegrador.threadControl := Self.FthreadControl;
-                dmIntegrador.CustomParams := Self.FCustomParams;
-                dmIntegrador.dmPrincipal := dm;
-                dmIntegrador.DataLog := Self.FDataLog;
-                dmIntegrador.SetOnException(Self.FOnException);
-                dmIntegrador.postRecordsToRemote(http);
-              end;
-            finally
-              FreeAndNil(dmIntegrador);
+            for I := 0 to sincronizador.posterDataModules.Count-1 do
+            begin
+              dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+              if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
+                break
+              else
+                FreeAndNil(dmIntegrador);
             end;
-          end;
+
+            if dmIntegrador <> nil then
+            begin
+              dmIntegrador.IdAtual := sincronizador.FilaClientDataSetID.AsInteger;
+              Self.log('Sincronizando ' + IntToStr(sincronizador.FilaClientDataSet.RecNo) + '/' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' - tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
+              if not Self.ShouldContinue then
+                Break;
+
+              try
+                JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
+                if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or
+                  ((JsonSetting = nil) and (not Self.FRestrictPosters)) then
+                begin
+                  if (JsonSetting <> nil) then
+                    dmIntegrador.SetStatementForPost(JsonSetting.PostStatement);
+                  dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
+                  dmIntegrador.notifier := FNotifier;
+                  dmIntegrador.threadControl := Self.FthreadControl;
+                  dmIntegrador.CustomParams := Self.FCustomParams;
+                  dmIntegrador.dmPrincipal := dm;
+                  dmIntegrador.DataLog := Self.FDataLog;
+                  dmIntegrador.SetOnException(Self.FOnException);
+                  Salvou := dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http);
+                end;
+              finally
+                FreeAndNil(dmIntegrador);
+              end;
+            end
+            else
+              Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
+
+            if Salvou then
+            begin
+              sincronizador.FilaClientDataSet.Delete;
+              sincronizador.FilaClientDataSet.ApplyUpdates(0);
+            end
+            else
+              sincronizador.FilaClientDataSet.Next;
+          end
         except
           on e: Exception do
           begin
@@ -518,7 +555,6 @@ begin
       CoUninitialize;
     end;
   finally
-    salvandoRetaguarda := false;
     if Self.Fnotifier <> nil then
       Synchronize(finishPuttingProcess);
   end;
