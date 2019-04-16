@@ -36,6 +36,7 @@ type
     FilaClientDataSetTENTATIVAS: TIntegerField;
     FilaClientDataSetULTIMATENTATIVA: TSQLTimeStampField;
     FilaClientDataSetOPERACAO: TStringField;
+    FilaClientDataSetSincronizado: TBooleanField;
     procedure DataModuleCreate(Sender: TObject);
     procedure sincronizaRetaguardaTimerTimer(Sender: TObject);
   private
@@ -115,6 +116,8 @@ type
     procedure PopulateTranslatedTableNames(aTranslatedTableName: TJsonDictionary);
     function getJsonFromServer: TJsonArray;
     function getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
+    procedure LimpaFilaSincronizacao;
+    procedure RestauraFilaSincronizacao;
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
@@ -492,13 +495,21 @@ begin
           sincronizador.FilaClientDataSet.First;
           while not sincronizador.FilaClientDataSet.Eof do
           begin
-            for I := 0 to sincronizador.posterDataModules.Count-1 do
+            if sincronizador.FilaClientDataSetOPERACAO.AsString = 'D' then //Delete
             begin
-              dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
-              if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
-                break
-              else
-                FreeAndNil(dmIntegrador);
+              Self.log('Enviando delete da ' + sincronizador.FilaClientDataSetTABELA.AsString + ' ID: ' + sincronizador.FilaClientDataSetID.AsString, 'Sync');
+              dmIntegrador := sincronizador.posterDataModules[0].Create(nil, http); //Aciona o SoftDelete
+            end
+            else
+            begin
+              for I := 1 to sincronizador.posterDataModules.Count do
+              begin
+                dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+                if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
+                  break
+                else
+                  FreeAndNil(dmIntegrador);
+              end;
             end;
 
             if dmIntegrador <> nil then
@@ -532,16 +543,17 @@ begin
               Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
 
             if Salvou then
-            begin
-              sincronizador.FilaClientDataSet.Delete;
-              sincronizador.FilaClientDataSet.ApplyUpdates(0);
-            end
+              self.LimpaFilaSincronizacao
             else
+            begin
+              self.RestauraFilaSincronizacao;
               sincronizador.FilaClientDataSet.Next;
+            end;
           end
         except
           on e: Exception do
           begin
+            self.RestauraFilaSincronizacao;
             Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
           end;
         end;
@@ -558,6 +570,42 @@ begin
     if Self.Fnotifier <> nil then
       Synchronize(finishPuttingProcess);
   end;
+end;
+
+procedure TRunnerThreadPuters.RestauraFilaSincronizacao;
+var
+  BookMark: TBookMark;
+begin
+  BookMark := sincronizador.FilaClientDataSet.Bookmark;
+  try
+    sincronizador.FilaClientDataSet.First;
+    while not sincronizador.FilaClientDataSet.Eof do
+    begin
+      sincronizador.FilaClientDataSet.Edit;
+      sincronizador.FilaClientDataSetSincronizado.Clear;
+      sincronizador.FilaClientDataSet.Post;
+      sincronizador.FilaClientDataSet.Next;
+    end;
+  finally
+    sincronizador.FilaClientDataSet.Bookmark := BookMark;
+  end;
+end;
+
+procedure TRunnerThreadPuters.LimpaFilaSincronizacao;
+begin
+  sincronizador.FilaClientDataSet.Delete;
+  sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE ';
+  sincronizador.FilaClientDataSet.Filtered := True;
+  try
+    sincronizador.FilaClientDataSet.First;
+    while not sincronizador.FilaClientDataSet.Eof do
+      sincronizador.FilaClientDataSet.Delete;
+  finally
+    sincronizador.FilaClientDataSet.Filtered := False;
+    sincronizador.FilaClientDataSet.Filter := '';
+  end;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  sincronizador.FilaClientDataSet.First;
 end;
 
 { TCustomRunnerThread }

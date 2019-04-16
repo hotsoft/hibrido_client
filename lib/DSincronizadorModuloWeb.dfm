@@ -75,5 +75,9 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
       FixedChar = True
       Size = 1
     end
+    object FilaClientDataSetSincronizado: TBooleanField
+      FieldKind = fkInternalCalc
+      FieldName = 'Sincronizado'
+    end
   end
 end
