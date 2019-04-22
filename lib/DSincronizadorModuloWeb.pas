@@ -502,7 +502,8 @@ begin
             end
             else
             begin
-              for I := 1 to sincronizador.posterDataModules.Count do
+              //Começa no 1 pois a posição 0 é para o softdelete
+              for I := 1 to sincronizador.posterDataModules.Count -1 do
               begin
                 dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
                 if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then

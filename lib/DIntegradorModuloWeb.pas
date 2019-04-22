@@ -214,7 +214,7 @@ type
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
     function importRecord(node: IXMLDomNode): boolean; virtual;
-    procedure updateInsertRecord(node: IXMLDomNode; const id: integer);
+    function updateInsertRecord(node: IXMLDomNode; const id: integer): Boolean;
     function jaExiste(aNode:IXMLDOMNode; const id: integer; Integrador: TDataIntegradorModuloWeb; var aCustomWhere: string; var pIdLocal: Integer): Int64;
     function getFieldList(node: IXMLDomNode): string;
     function getFieldUpdateList(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
@@ -273,7 +273,7 @@ type
     function JsonObjectHasPair(const aName: string; aJson: TJSONObject): boolean;
     function DataSetToArray(aDs: TDataSet): TStringDictionary; virtual;
     procedure BeforeUpdateInsertRecord(aParentIntegrador, aIntegrador:TDataIntegradorModuloWeb; node: IXMLDomNode; const id: integer; var handled: boolean); virtual;
-    procedure ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb); virtual;
+    function ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String): Boolean; virtual;
     function getTranslatedTable(const aServerName: string): TDataIntegradorModuloWeb; virtual;
     function getNomeSingular: string; virtual;
     procedure SetNomeSingular(const Value: string); virtual;
@@ -622,12 +622,8 @@ begin
     begin
       _Trans := dmPrincipal.startTransaction;
       try
-        if self.PodeAtualizar(self.nomeTabela, id) then
-        begin
-          Self.updateInsertRecord(node, id);
-          dmPrincipal.commit(_Trans);
-        end;
-        Result := True;
+        Result := Self.updateInsertRecord(node, id);
+        dmPrincipal.commit(_Trans);
       except
         on E:Exception do
         begin
@@ -791,7 +787,7 @@ begin
         else
         begin
           Field := nil;
-          if Integrador.FFieldList <> nil then
+          if (Integrador.FFieldList <> nil) and (Lowercase(name) <> 'idremoto') and (Lowercase(name) <> 'version_id') then
             Field := Integrador.FFieldList.Items[Lowercase(name)];
           if Field <> nil then
           begin
@@ -861,7 +857,7 @@ begin
   Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal);
 end;
 
-procedure TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb);
+function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String) : Boolean;
 var
   i: integer;
   name: string;
@@ -884,15 +880,21 @@ var
   vIdLocal: Integer;
   _Trans: TDBXTransaction;
 begin
+  Result := False;
   NewId := 0;
   _CustomWhere := EmptyStr;
   _WhereInUpdate := EmptyStr;
   qry := dmPrincipal.getQuery;
   ChildrenNodes := TXMLNodeDictionary.Create;
   try
-    //Version_Id inicia com -1, desta forma, tem que testar se é diferente de zero para que não insira registros indevidamente
-    if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) then
+    if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
+      if (pOperacao = opGET) and (not self.PodeAtualizar(Integrador.nomeTabela, id)) then
+      begin
+        Result := False;
+        exit;
+      end;
+
       DMLOperation := dmUpdate;
       FieldsListUpdate := Self.getFieldUpdateList(node, Integrador);
 
@@ -932,9 +934,13 @@ begin
     _trans := dmPrincipal.startTransaction;
     try
       Self.ExecQuery(qry);
-      Self.UpdateHibridoDadosRemotos(Self.GetVersionIdAtual, vIdLocal, id, Integrador.nomeTabela, opGET, _trans);
-      Self.UpdateHibridoMetaDadosRemotos(Self.GetVersionIdAtual, _trans);
+      if pOperacao = opGET then
+      begin
+        Self.UpdateHibridoDadosRemotos(Self.GetVersionIdAtual, vIdLocal, id, Integrador.nomeTabela, opGET, _trans);
+        Self.UpdateHibridoMetaDadosRemotos(Self.GetVersionIdAtual, _trans);
+      end;
       dmPrincipal.commit(_trans);
+      Result := True;
     except
       on E: Exception do
       begin
@@ -963,7 +969,11 @@ begin
             handled := False;
             Self.BeforeUpdateInsertRecord(Self, Detail, nodeItem, ChildId, handled);
             if not handled then
-              Self.ExecInsertRecord(nodeItem, ChildId, Detail);
+            begin
+              Result := Self.ExecInsertRecord(nodeItem, ChildId, Detail, pOperacao);
+              if not Result then
+                exit;
+            end;
           end;
         end;
       end;
@@ -990,14 +1000,15 @@ begin
   end;
 end;
 
-procedure TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer);
+function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer) : Boolean;
 var
   handled : boolean;
 begin
   handled := False;
+  Result := False;
   Self.BeforeUpdateInsertRecord(nil, Self, node, id, handled);
   if not handled then
-    Self.ExecInsertRecord(node, id, Self);
+    Result := Self.ExecInsertRecord(node, id, Self, opGET);
 end;
 
 procedure TDataIntegradorModuloWeb.UpdateRecordDetalhe(pNode: IXMLDomNode; pTabelasDetalhe : TTabelaDetalheList);
@@ -1118,7 +1129,7 @@ begin
   for i := 0 to node.childNodes.length - 1 do
   begin
     name := translateFieldNameServerToPdv(node.childNodes.item[i], Integrador);
-    if (name <> '*') and (name <> 'idRemoto') and (name <> 'version_id') then
+    if (name <> '*') and (LowerCase(name) <> 'idremoto') and (LowerCase(name) <> 'version_id') then
       if Self.getIncludeFieldNameOnList(dmUpdate, name, Integrador) then
         result := result + ' ' + name + ' = :' + name + ',';
   end;
@@ -1140,7 +1151,7 @@ begin
     for i := 0 to node.childNodes.length - 1 do
     begin
       name := LowerCase(translateFieldNameServerToPdv(node.childNodes.item[i], Integrador));
-      if (name <> '*')then
+      if (name <> '*') and (LowerCase(name) <> 'idremoto') and (LowerCase(name) <> 'version_id') then
         if Self.getIncludeFieldNameOnList(dmInsert, name, Integrador) and (StrInsert.IndexOf(name) < 0) then
         begin
           StrInsert.Add(name);
@@ -1335,7 +1346,9 @@ begin
   qry := dmPrincipal.getQuery;
   try
     try
-      qry.commandText := 'SELECT * FROM ' + aTabelaDetalhe.nomeTabela + ' where ' + aTabelaDetalhe.nomeFK +
+      qry.commandText := 'SELECT ' + aTabelaDetalhe.nomeTabela + '.*,' + 'hdr.idremoto, hdr.version_id FROM ' + aTabelaDetalhe.nomeTabela +
+      ' left join hibridodadosremotos hdr on hdr.tabela = ' + QuotedStr(UpperCase(aTabelaDetalhe.nomeTabela)) + ' and hdr.id = ' + aTabelaDetalhe.nomeTabela + '.' + aTabelaDetalhe.nomePKLocal +
+      ' where ' + aTabelaDetalhe.nomeFK +
         ' = ' + IntToStr(aValorPK) + self.getAdditionalDetailFilter;
       qry.Open;
       while not qry.Eof do
@@ -1713,6 +1726,7 @@ begin
         Result := Self.getXMLContentAsXMLDom(xmlContent);
         if duasVias or clientToServer then
         begin
+          ExecInsertRecord(Result.selectNodes('//hash')[0], Self.GetIdRemoto(Result), Self, opPOST);
           version_id := Self.GetVersionId(Result);
           self.UpdateHibridoDadosRemotos(version_id, GetIdAtual, Self.GetIdRemoto(Result), self.nomeTabela, opPOST);
 
@@ -2544,7 +2558,6 @@ begin
         end;
         lqry.Next;
       end;
-
     finally
       lqry.Free;
     end;
