@@ -1,3 +1,4 @@
+
 unit DSincronizadorModuloWeb;
 
 interface
@@ -37,6 +38,16 @@ type
     FilaClientDataSetULTIMATENTATIVA: TSQLTimeStampField;
     FilaClientDataSetOPERACAO: TStringField;
     FilaClientDataSetSincronizado: TBooleanField;
+    MetaDadosDataSet: TSQLDataSet;
+    MetaDadosProvider: TDataSetProvider;
+    MetaDadosClientDataSet: TosClientDataset;
+    MetaDadosDataSetTABELA: TStringField;
+    MetaDadosDataSetVERSION_ID: TLargeintField;
+    MetaDadosClientDataSetTABELA: TStringField;
+    MetaDadosClientDataSetVERSION_ID: TLargeintField;
+    MetaDadosClientDataSetBaixar: TBooleanField;
+    MetaDadosClientDataSetnome_plural: TStringField;
+    MetaDadosClientDataSetVERSION_ID_SERVER: TLargeintField;
     procedure DataModuleCreate(Sender: TObject);
     procedure sincronizaRetaguardaTimerTimer(Sender: TObject);
   private
@@ -49,6 +60,7 @@ type
     function ShouldContinue: boolean;
     procedure setGetterBlocks(const Value: TGetterBlocks);
     procedure SetOnException(const Value: TOnExceptionProcedure);
+    procedure VerificarTabelasGET(pDM: IDataPrincipal; pSB: TServerToClientBlock; http: TidHTTP);
   protected
     Fnotifier: ISincronizacaoNotifier;
     FThreadControl: IThreadControl;
@@ -168,6 +180,76 @@ begin
   Result := Self.FIDataPrincipal;
 end;
 
+procedure TDataSincronizadorModuloWeb.VerificarTabelasGET(pDM: IDataPrincipal; pSB: TServerToClientBlock; http: TidHTTP);
+var
+  dmw:  TDataIntegradorModuloWebClass;
+  dimw: TDataIntegradorModuloWeb;
+  JVersions, JsonObj: TJsonObject;
+  Retorno: string;
+  dmIntegrador: TDataIntegradorModuloWeb;
+  pStream: TStringStream;
+  I: Integer;
+begin
+  JVersions := TJSONObject.Create;
+  JVersions.Owned := True;
+  JsonObj := TJSONObject.Create;
+  try
+    MetaDadosDataSet.SQLConnection := pDM.getQuery.SQLConnection;
+    MetaDadosClientDataSet.Open;
+    MetaDadosClientDataSet.First;
+    while not MetaDadosClientDataSet.Eof do
+    begin
+      MetaDadosClientDataSet.Edit;
+      MetaDadosClientDataSetBaixar.AsBoolean := False;
+      MetaDadosClientDataSet.Post;
+      MetaDadosClientDataSet.Next;
+    end;
+
+    for dmw in pSB do
+    begin
+      dimw := dmw.Create(nil, http);
+      try
+        if MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive]) then
+        begin
+          JsonObj.AddPair(dimw.nomePlural, MetaDadosClientDataSetVERSION_ID.AsString);
+          MetaDadosClientDataSet.Edit;
+          MetaDadosClientDataSetnome_plural.AsString := dimw.nomePlural;
+          MetaDadosClientDataSet.Post;
+        end;
+      finally
+        dimw.Free;
+      end;
+    end;
+      JVersions.AddPair('metadata', JsonObj);
+
+    dmIntegrador := self.posterDataModules[0].Create(nil, http); //Apenas para pegar a URL
+    pStream := TStringStream.Create(JVersions.ToString, TEncoding.UTF8);
+    try
+      dmIntegrador.CustomParams := Self.FCustomParams;
+      http.Request.ContentType := 'application/json';
+      http.Request.ContentEncoding := 'utf-8';
+      Retorno := http.POST(dmIntegrador.getURL + 'metadata?' + dmIntegrador.getDefaultParams, pStream);
+    finally
+      FreeAndNil(dmIntegrador);
+      FreeAndNil(pStream);
+    end;
+
+    JsonObj := TJSONObject.ParseJSONValue(TEncoding.ASCII.GetBytes(Retorno),0) as TJSONObject;
+    JsonObj := JsonObj.Get(0).JsonValue as TJsonObject;
+    for I:= 0 to JsonObj.Size - 1 do
+    begin
+      MetaDadosClientDataSet.Locate('nome_plural', JsonObj.Get(I).JsonString.Value, [loCaseInsensitive]);
+      MetaDadosClientDataSet.Edit;
+      MetaDadosClientDataSetBaixar.AsBoolean := True;
+      MetaDadosClientDataSetVERSION_ID_SERVER.AsLargeInt := StrToInt64(JsonObj.Get(I).JsonValue.Value);
+      MetaDadosClientDataSet.Post
+    end;
+  finally
+    JVersions.Free;
+    JsonObj.Free;
+  end;
+end;
+
 procedure TDataSincronizadorModuloWeb.getUpdatedData;
 var
   i: integer;
@@ -179,6 +261,7 @@ var
   sb: TServerToClientBlock;
   dmw:  TDataIntegradorModuloWebClass;
   _Trans: TDBXTransaction;
+  vRegistrosEncontrados: Integer;
 begin
   CoInitializeEx(nil, 0);
   try
@@ -189,6 +272,10 @@ begin
       begin
         if not Self.ShouldContinue then
           Break;
+
+        //Carrega o Max Version_ID de cada tabela em um JSON que será enviado ao servidor, para que o servidor retorne quais tabelas devem ser atualizadas
+        self.VerificarTabelasGET(dm, sb, http);
+
         for dmw in sb do
         begin
           if not Self.ShouldContinue then
@@ -196,36 +283,49 @@ begin
 
           _Trans := dm.startTransaction;
           dimw := dmw.Create(nil, http);
-          try
+
+          if (MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive])) and
+             (MetaDadosClientDataSetBaixar.AsBoolean) then
+          begin
             try
-              i := 1;
-              dimwName := dimw.getHumanReadableName;
-              dimw.notifier := Self.Fnotifier;
-              dimw.dmPrincipal := dm;
-              dimw.threadcontrol := Self.FThreadControl;
-              dimw.OnException := Self.OnException;
-              dimw.CustomParams := Self.FCustomParams;
-              dimw.DataLog := Self.FDataLog;
-              dimw.getDadosAtualizados;
-              if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
-              inc(i);
-              dm.commit(_Trans);
-            except
-              on E: Exception do
-              begin
-                dm.rollback(_Trans);
-                if assigned(Self.FOnException) then
-                  Self.FOnException(haGet, dimw, E.ClassName, E.Message, 0);
-                if assigned (self.FDataLog) then
+              try
+                i := 1;
+                dimwName := dimw.getHumanReadableName;
+                dimw.notifier := Self.Fnotifier;
+                dimw.dmPrincipal := dm;
+                dimw.threadcontrol := Self.FThreadControl;
+                dimw.OnException := Self.OnException;
+                dimw.CustomParams := Self.FCustomParams;
+                dimw.DataLog := Self.FDataLog;
+                dimw.getDadosAtualizados(vRegistrosEncontrados);
+                if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
+                inc(i);
+                dm.commit(_Trans);
+
+                if vRegistrosEncontrados = 0 then
                 begin
-                  SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
-                  Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
-                  SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+                  MetaDadosClientDataSet.Edit;
+                  MetaDadosClientDataSetVERSION_ID.AsLargeInt := MetaDadosClientDataSetVERSION_ID_SERVER.AsLargeInt;
+                  MetaDadosClientDataSet.Post;
+                  MetaDadosClientDataSet.ApplyUpdates(0);
+                end;
+              except
+                on E: Exception do
+                begin
+                  dm.rollback(_Trans);
+                  if assigned(Self.FOnException) then
+                    Self.FOnException(haGet, dimw, E.ClassName, E.Message, 0);
+                  if assigned (self.FDataLog) then
+                  begin
+                    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
+                    Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
+                    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+                  end;
                 end;
               end;
+            finally
+              dimw.free;
             end;
-          finally
-            dimw.free;
           end;
         end;
       end;
@@ -555,6 +655,7 @@ begin
           on e: Exception do
           begin
             self.RestauraFilaSincronizacao;
+            sincronizador.FilaClientDataSet.Next;
             Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
           end;
         end;
@@ -577,8 +678,16 @@ procedure TRunnerThreadPuters.RestauraFilaSincronizacao;
 var
   BookMark: TBookMark;
 begin
+  sincronizador.FilaClientDataSet.Edit;
+  sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
+  sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
+  sincronizador.FilaClientDataSet.Post;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+
   BookMark := sincronizador.FilaClientDataSet.Bookmark;
   try
+    sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';
+    sincronizador.FilaClientDataSet.Filtered := True;
     sincronizador.FilaClientDataSet.First;
     while not sincronizador.FilaClientDataSet.Eof do
     begin
@@ -588,6 +697,8 @@ begin
       sincronizador.FilaClientDataSet.Next;
     end;
   finally
+    sincronizador.FilaClientDataSet.Filter := '';
+    sincronizador.FilaClientDataSet.Filtered := False;
     sincronizador.FilaClientDataSet.Bookmark := BookMark;
   end;
 end;

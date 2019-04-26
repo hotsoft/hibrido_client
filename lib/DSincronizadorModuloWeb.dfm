@@ -6,8 +6,8 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
   object sincronizaRetaguardaTimer: TTimer
     Interval = 60000
     OnTimer = sincronizaRetaguardaTimerTimer
-    Left = 160
-    Top = 96
+    Left = 352
+    Top = 112
   end
   object FilaDataSet: TSQLDataSet
     CommandText = 
@@ -78,6 +78,56 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
     object FilaClientDataSetSincronizado: TBooleanField
       FieldKind = fkInternalCalc
       FieldName = 'Sincronizado'
+    end
+  end
+  object MetaDadosDataSet: TSQLDataSet
+    CommandText = 'select h.tabela, h.version_id from hibridometadadosremotos h'
+    MaxBlobSize = -1
+    Params = <>
+    SQLConnection = MainData.SQLConnection
+    Left = 32
+    Top = 72
+    object MetaDadosDataSetTABELA: TStringField
+      FieldName = 'TABELA'
+      Required = True
+      Size = 50
+    end
+    object MetaDadosDataSetVERSION_ID: TLargeintField
+      FieldName = 'VERSION_ID'
+    end
+  end
+  object MetaDadosProvider: TDataSetProvider
+    DataSet = MetaDadosDataSet
+    Left = 120
+    Top = 72
+  end
+  object MetaDadosClientDataSet: TosClientDataset
+    Aggregates = <>
+    FetchOnDemand = False
+    Params = <>
+    DataProvider = MetaDadosProvider
+    Left = 216
+    Top = 72
+    object MetaDadosClientDataSetTABELA: TStringField
+      DisplayWidth = 50
+      FieldName = 'TABELA'
+      Size = 50
+    end
+    object MetaDadosClientDataSetVERSION_ID: TLargeintField
+      FieldName = 'VERSION_ID'
+    end
+    object MetaDadosClientDataSetBaixar: TBooleanField
+      FieldKind = fkInternalCalc
+      FieldName = 'Baixar'
+    end
+    object MetaDadosClientDataSetnome_plural: TStringField
+      FieldKind = fkInternalCalc
+      FieldName = 'nome_plural'
+      Size = 50
+    end
+    object MetaDadosClientDataSetVERSION_ID_SERVER: TLargeintField
+      FieldKind = fkInternalCalc
+      FieldName = 'VERSION_ID_SERVER'
     end
   end
 end

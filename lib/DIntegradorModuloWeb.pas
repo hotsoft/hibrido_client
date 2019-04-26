@@ -257,7 +257,7 @@ type
     function getUpdateStatement(node: IXMLDomNode; const id: integer): String; virtual;
     function getInsertStatement(node: IXMLDomNode): String; virtual;
     function getNewId(node: IXMLDomNode): Integer; virtual;
-    function Post(ds: TDataSet; http: TidHTTP; const url: string): string; virtual;
+    function Post(ds: TDataSet; http: TidHTTP; const url: string; pTrans: TDBXTransaction): string; virtual;
     procedure addDetailsToJsonList(aDetailList: TDetailList; aDs: TDataSet); virtual;
     procedure SelectDetails(aDetailList: TDetailList; aValorPK: integer; aTabelaDetalhe: TTabelaDetalhe); virtual;
     function getJsonObject(aDs: TDataSet; aTranslations: TTranslationSet; aDict: TStringDictionary; aNestedAttribute: string = '') : TJsonObject; virtual;
@@ -291,8 +291,6 @@ type
     procedure setNomeFK(const Value: string); virtual;
     function getHTTP: TIdHTTP;
     function GetFallbackWhere(aNode: IXMLDOMNode; var IdLocal: Integer): string; virtual;
-    function getURL: string; virtual;
-    function getDefaultParams: string; virtual;
     function getIdLocalByIdRemoto(pTabela: String; pIdRemoto: Integer): Integer; virtual;
     function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean; virtual;
     procedure UpdateHibridoDadosRemotos(pVersionId: Int64; pIdLocal, pIdRemoto: integer; pTabela: String; pOperacao: String; Transaction: TDBXTransaction = nil); virtual;
@@ -309,8 +307,9 @@ type
     property dmPrincipal: IDataPrincipal read getdmPrincipal write SetdmPrincipal;
     property stopOnPostRecordError: boolean read FstopOnPostRecordError write FstopOnPostRecordError;
     property stopOnGetRecordError: boolean read FStopOnGetRecordError write FstopOnGetRecordError;
+//    property FilaSincronizacaoClientDataSet: TClientDataSet read FStopOnGetRecordError write FstopOnGetRecordError;
     function buildRequestURL(nomeRecurso: string; params: string = ''; httpAction: THttpAction = haGet): string; virtual;
-    procedure getDadosAtualizados; virtual;
+    procedure getDadosAtualizados(var RegistrosEncontrados: Integer); virtual;
     function saveRecordToRemote(ds: TDataSet; var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
     procedure migrateSingletonTableToRemote;
     function postRecordsToRemote(pDataSetFila: TClientDataSet; http: TidHTTP = nil): Boolean; virtual;
@@ -344,6 +343,8 @@ type
                                   aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
                                   aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0);
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
+    function getURL: string; virtual;
+    function getDefaultParams: string; virtual;
   end;
 
 
@@ -391,7 +392,7 @@ begin
   Result := '/' + dasherize(nomePlural) + '//' + dasherize(FnomeSingular);
 end;
 
-procedure TDataIntegradorModuloWeb.getDadosAtualizados;
+procedure TDataIntegradorModuloWeb.getDadosAtualizados(var RegistrosEncontrados: Integer);
 var
   url, erro: string;
   numRegistros, LastId: integer;
@@ -437,6 +438,7 @@ begin
     keepImporting := (maxRecords > 0) and (numRegistros >= maxRecords);
   end;
   afterDadosAtualizados;
+  RegistrosEncontrados := numRegistros;
 end;
 
 procedure TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
@@ -1546,11 +1548,13 @@ begin
   Result := True;
 end;
 
-function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; const url: string): string;
+function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; const url: string; pTrans: TDBXTransaction): string;
 var
   params: TStringList;
   pStream: TStringStream;
   DetailList: TDetailList;
+  Content: IXMLDomDocument2;
+  IdRemoto : integer;
 begin
   result := '';
   pStream := TStringStream.Create('', TEncoding.UTF8);
@@ -1560,6 +1564,11 @@ begin
     Self.addMasterTableToJson(DetailList, ds, pStream);
     result := http.Post(url, pStream);
     Self.FLastStream.LoadFromStream(pStream);
+
+    Content := Self.getXMLContentAsXMLDom(result);
+    if Content <> nil then
+      IdRemoto := Self.GetIdRemoto(Content);
+    self.UpdateHibridoDadosRemotos(self.GetVersionId(Content), ds.fieldByName(nomePKLocal).AsInteger, IdRemoto, self.nomeTabela, opPOST, pTrans);
   finally
     pStream.Free;
     DetailList.Free;
@@ -1645,6 +1654,7 @@ var
   url: string;
   criouHttp: boolean;
   log: string;
+  _Trans: TDBXTransaction;
   //version_id: Int64;
 begin
   Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
@@ -1665,9 +1675,12 @@ begin
     begin
       if (Self.FthreadControl <> nil) and (not Self.FthreadControl.getShouldContinue) then
         break;
+
+      _Trans := self.dmPrincipal.startTransaction;
       try
         url := getRequestUrlForAction(true, -1);
-        xmlContent := Self.Post(ds, http, url);
+        xmlContent := Self.Post(ds, http, url, _Trans);
+        Self.dmPrincipal.commit(_Trans);
 
         sucesso := true;
         Result := Self.getXMLContentAsXMLDom(xmlContent);
@@ -1682,6 +1695,7 @@ begin
       except
         on e: EIdHTTPProtocolException do
         begin
+          Self.dmPrincipal.rollback(_Trans);
           if e.ErrorCode = 422 then
             log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage, 'xml')])
           else if e.ErrorCode = 500 then
@@ -1694,6 +1708,7 @@ begin
         end;
         on E: Exception do
         begin
+          Self.dmPrincipal.rollback(_Trans);
           log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Erro: %s', [ ClassName, Self.nomeTabela, e.Message]);
           Self.log(log, 'Sync');
           raise EIntegradorException.Create(log) ;
@@ -1876,7 +1891,7 @@ function TDataIntegradorModuloWeb.postRecordsToRemote(pDataSetFila: TClientDataS
 var
   qry: TSQLDataSet;
   salvou: boolean;
-  n, total: integer;
+  total: integer;
   criouHTTP: boolean;
   BookMark: TBookMark;
 begin
@@ -1907,21 +1922,7 @@ begin
         {$ENDIF}
       end;
       qry.Open;
-      try //Pode ocorrer erro no RecordCount conforme sintax do SQL
-        total := qry.RecordCount;
-      except
-        total := -1;
-      end;
 
-      if total = 0 then
-      begin
-        //verifica se o registro não existe mais na tabela, nesse caso remover da fila
-        if not self.RegistroAindaExiste(pDataSetFila.FieldByName('tabela').AsString, pDataSetFila.FieldByName('id').AsString) then
-          Result := True;
-        exit;
-      end;
-
-      n := 1;
       if http = nil then
       begin
         criouHTTP := true;
@@ -1930,9 +1931,12 @@ begin
         http.HTTPOptions := http.HTTPOptions + [hoKeepOrigProtocol];
         http.Request.Connection := 'keep-alive';
       end;
+
+      total := 0;
       qry.First;
       while not qry.Eof do
       begin
+        inc(total);
         if (not self.shouldContinue) then
           break;
 
@@ -1943,7 +1947,7 @@ begin
         try
           saveRecordToRemote(qry, salvou, http);
           if salvou then
-            Self.Log(Format('Registro %d de %d', [n, total]));
+            Self.Log('Registro Salvo');
         except
           on e: Exception do
           begin
@@ -1955,9 +1959,20 @@ begin
               raise;
           end;
         end;
-        inc(n);
         qry.Next;
       end;
+
+      if total = 0 then
+      begin
+        if pDataSetFila.FieldByName('OPERACAO').AsString = 'D' then //Sempre remove da fila quando registro for de DELETE
+          Result := True
+        else
+        //verifica se o registro não existe mais na tabela, nesse caso remover da fila
+        if not self.RegistroAindaExiste(pDataSetFila.FieldByName('tabela').AsString, pDataSetFila.FieldByName('id').AsString) then
+          Result := True;
+        exit;
+      end;
+
       if notifier <> nil then
         notifier.unflagSalvandoDadosServidor;
       if Total > 0 then
@@ -1987,6 +2002,7 @@ begin
   try
     qry.CommandText := 'select * from ' + pTabela + ' where ' + Self.nomePKLocal + ' = ' + pID;
     qry.Open;
+
     result := not qry.IsEmpty;
   finally
     FreeAndNil(qry);
