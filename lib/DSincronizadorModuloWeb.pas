@@ -684,7 +684,7 @@ begin
   sincronizador.FilaClientDataSet.Post;
   sincronizador.FilaClientDataSet.ApplyUpdates(0);
 
-  BookMark := sincronizador.FilaClientDataSet.Bookmark;
+  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
   try
     sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';
     sincronizador.FilaClientDataSet.Filtered := True;
@@ -699,13 +699,19 @@ begin
   finally
     sincronizador.FilaClientDataSet.Filter := '';
     sincronizador.FilaClientDataSet.Filtered := False;
-    sincronizador.FilaClientDataSet.Bookmark := BookMark;
+    if sincronizador.FilaClientDataSet.BookmarkValid(BookMark) then
+      sincronizador.FilaClientDataSet.GotoBookmark(BookMark);
+    sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
   end;
 end;
 
 procedure TRunnerThreadPuters.LimpaFilaSincronizacao;
+var
+  BookMark: TBookMark;
 begin
   sincronizador.FilaClientDataSet.Delete;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
   sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE ';
   sincronizador.FilaClientDataSet.Filtered := True;
   try
@@ -715,9 +721,14 @@ begin
   finally
     sincronizador.FilaClientDataSet.Filtered := False;
     sincronizador.FilaClientDataSet.Filter := '';
+
+    if (sincronizador.FilaClientDataSet.RecordCount > 0) and (sincronizador.FilaClientDataSet.BookmarkValid(BookMark)) then
+      sincronizador.FilaClientDataSet.GotoBookmark(BookMark);
+
+    sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
   end;
   sincronizador.FilaClientDataSet.ApplyUpdates(0);
-  sincronizador.FilaClientDataSet.First;
+//  sincronizador.FilaClientDataSet.First;
 end;
 
 { TCustomRunnerThread }

@@ -1936,7 +1936,6 @@ begin
       qry.First;
       while not qry.Eof do
       begin
-        inc(total);
         if (not self.shouldContinue) then
           break;
 
@@ -1947,7 +1946,10 @@ begin
         try
           saveRecordToRemote(qry, salvou, http);
           if salvou then
+          begin
             Self.Log('Registro Salvo');
+            inc(total);
+          end;
         except
           on e: Exception do
           begin
@@ -1955,8 +1957,9 @@ begin
               Self.FOnException(haPost, Self, E.ClassName, E.Message, qry.FieldByName(Self.nomePKLocal).AsInteger);
 
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
-            if stopOnPostRecordError then
-              raise;
+            break;
+            //if stopOnPostRecordError then
+            //  raise
           end;
         end;
         qry.Next;

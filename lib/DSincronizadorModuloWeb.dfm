@@ -11,8 +11,8 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
   end
   object FilaDataSet: TSQLDataSet
     CommandText = 
-      'select * from HIBRIDOFILASINCRONIZACAO order by IDHIBRIDOFILASIN' +
-      'CRONIZACAO'
+      'select first 500 * from hibridofilasincronizacao order by idhibr' +
+      'idofilasincronizacao'
     MaxBlobSize = -1
     Params = <>
     SQLConnection = MainData.SQLConnection
