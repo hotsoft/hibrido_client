@@ -339,9 +339,9 @@ type
     function UnEscapeValueFromServer(const aValue: string): string;
     property OnException: TOnExceptionProcedure read FOnException write SetOnException;
     function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean; virtual;
-    procedure ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
+    function ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
                                   aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
-                                  aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0);
+                                  aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
     function getURL: string; virtual;
     function getDefaultParams: string; virtual;
@@ -430,20 +430,20 @@ begin
           Self.Log(vLog);
           raise EIntegradorException.Create(vLog);
         end;
-        Self.ImportXMLFromServer(Self, retornoStream, numRegistros, LastId);
+        keepImporting := Self.ImportXMLFromServer(Self, retornoStream, numRegistros, LastId);
       end;
     finally
       retornoStream.Free;
     end;
-    keepImporting := (maxRecords > 0) and (numRegistros >= maxRecords);
+    keepImporting := keepImporting and (maxRecords > 0) and (numRegistros >= maxRecords);
   end;
   afterDadosAtualizados;
   RegistrosEncontrados := numRegistros;
 end;
 
-procedure TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
+function TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
                                                        aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
-                                                       aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0 );
+                                                       aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0 ) : Boolean;
 var
   doc: IXMLDomDocument2;
   list : IXMLDomNodeList;
@@ -451,6 +451,7 @@ var
   node : IXMLDomNode;
   LastVersionId: integer;
 begin
+  Result := True;
   //aTabelaIgnorar e aIdRegistroIgnorar são usados na recursividade, um exame que foi importado e a requisição foi carregada de modo recursivo
   //evita de salvar o exame duas vezes
   if (not (aRetornoStream.DataString.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
@@ -476,7 +477,10 @@ begin
           if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
             continue;
           if not aDataIntegradorModuloWeb.importRecord(node) and aDataIntegradorModuloWeb.StopOnGetRecordError then
-            Break;
+          begin
+            Result := False;
+            Break
+          end;
 
           LastVersionId := -1;
           if node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)) <> nil then
