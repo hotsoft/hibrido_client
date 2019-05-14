@@ -167,6 +167,7 @@ type
     procedure setVersionIdToJSON(pJSON: TJsonObject; pTabela, pId: String);
     function getLastVersionIDLocal(pTabela: String) : Int64;
     function RegistroAindaExiste(pTabela, pID: String): Boolean;
+    function ValidaRegistroFila(pTabela: String; pPkLocal: Integer): Boolean;
     const
       SQLFK =
         ' SELECT'+
@@ -1306,7 +1307,9 @@ begin
       qry.Open;
       while not qry.Eof do
       begin
-        aProc(qry);
+        //Deve enviar o registro filho apenas se ele estiver na fila.
+        if self.ValidaRegistroFila(aTabelaDetalhe.nomeTabela, qry.FieldByName(aTabelaDetalhe.nomePKLocal).AsInteger) then
+          aProc(qry);
         qry.Next;
       end;
     except
@@ -1316,6 +1319,23 @@ begin
          raise;
        end;
     end;
+  finally
+    FreeAndNil(qry);
+  end;
+end;
+
+function TDataIntegradorModuloWeb.ValidaRegistroFila(pTabela: String; pPkLocal: Integer) : Boolean;
+var
+  qry: TSQLDataSet;
+begin
+  //Verifica se o registro esta na fila, dessa forma pode ser feito o POST dos detalhes, caso não haja um registro filho na fila, apenas o pai deve ser sincronizado
+  qry := dmPrincipal.getQuery;
+  try
+    qry.CommandText := 'select * from HIBRIDOFILASINCRONIZACAO WHERE TABELA = :TABELA AND ID = :ID';
+    qry.ParamByName('TABELA').AsString := UpperCase(Trim(pTabela));
+    qry.ParamByName('ID').AsInteger := pPkLocal;
+    qry.Open;
+    Result := not qry.IsEmpty;
   finally
     FreeAndNil(qry);
   end;

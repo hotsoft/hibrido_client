@@ -130,6 +130,7 @@ type
     function getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
     procedure LimpaFilaSincronizacao;
     procedure RestauraFilaSincronizacao;
+    procedure ValidaPostRules(pTranslatedTables: TJsonDictionary);
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
@@ -524,7 +525,9 @@ begin
             Result.PostStatement := TIdDecoderMIME.DecodeString(JsonPair.JsonValue.Value, IndyTextEncoding_UTF8)
           end;
           if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'post') then
-            Result.PostToServer := StrToBoolDef(JsonPair.JsonString.Value, True)
+          begin
+            Result.PostToServer := StrToBoolDef(UpperCase(JsonPair.JsonValue.ToString), True)
+          end;
         end;
       end;
     end;
@@ -574,7 +577,6 @@ var
   http: TIdHTTP;
   lTranslateTableNames: TJsonDictionary;
   JsonSetting: TJsonSetting;
-  Salvou: Boolean;
 begin
   inherited;
   if Self.Fnotifier <> nil then
@@ -591,6 +593,9 @@ begin
           Self.PopulateTranslatedTableNames(lTranslateTableNames);
           sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
           sincronizador.FilaClientDataSet.Open;
+
+          self.ValidaPostRules(lTranslateTableNames);
+
           Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
           sincronizador.FilaClientDataSet.First;
           while not sincronizador.FilaClientDataSet.Eof do
@@ -634,22 +639,22 @@ begin
                   dmIntegrador.dmPrincipal := dm;
                   dmIntegrador.DataLog := Self.FDataLog;
                   dmIntegrador.SetOnException(Self.FOnException);
-                  Salvou := dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http);
+
+                  if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
+                    self.LimpaFilaSincronizacao
+                  else
+                  begin
+                    self.RestauraFilaSincronizacao;
+                    sincronizador.FilaClientDataSet.Next;
+                  end;
                 end;
+
               finally
                 FreeAndNil(dmIntegrador);
               end;
             end
             else
               Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
-
-            if Salvou then
-              self.LimpaFilaSincronizacao
-            else
-            begin
-              self.RestauraFilaSincronizacao;
-              sincronizador.FilaClientDataSet.Next;
-            end;
           end
         except
           on e: Exception do
@@ -671,6 +676,74 @@ begin
   finally
     if Self.Fnotifier <> nil then
       Synchronize(finishPuttingProcess);
+  end;
+end;
+
+procedure TRunnerThreadPuters.ValidaPostRules(pTranslatedTables: TJsonDictionary);
+var
+  JsonSetting: TJsonSetting;
+  dmIntegrador: TDataIntegradorModuloWeb;
+  I: Integer;
+  http: TIdHTTP;
+  BookMark: TBookMark;
+begin
+  //Remove da fila todos os registros que não deve ser feito POST, isso é definido no Laboratory_Post_Rules
+
+  try
+    sincronizador.FilaClientDataSet.First;
+    while not sincronizador.FilaClientDataSet.Eof do
+    begin
+      //Começa no 1 pois a posição 0 é para o softdelete
+      for I := 1 to sincronizador.posterDataModules.Count -1 do
+      begin
+        dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+        if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
+          break
+        else
+          FreeAndNil(dmIntegrador);
+      end;
+
+      if dmIntegrador <> nil then
+      begin
+        JsonSetting := pTranslatedTables.Items[dmIntegrador.getNomeTabela];
+        if ((JsonSetting <> nil) and (not JsonSetting.PostToServer)) then
+        begin
+          BookMark := sincronizador.FilaClientDataSet.GetBookmark;
+          sincronizador.FilaClientDataSet.Filter := 'TABELA = ' + QuotedStr(sincronizador.FilaClientDataSetTABELA.AsString);
+          sincronizador.FilaClientDataSet.Filtered := True;
+          try
+            sincronizador.FilaClientDataSet.First;
+            while not sincronizador.FilaClientDataSet.Eof do
+            begin
+              sincronizador.FilaClientDataSet.Edit;
+              sincronizador.FilaClientDataSetSincronizado.AsBoolean := True;
+              sincronizador.FilaClientDataSet.Post;
+              sincronizador.FilaClientDataSet.Next;
+            end;
+
+          finally
+            sincronizador.FilaClientDataSet.Filter := '';
+            sincronizador.FilaClientDataSet.Filtered := False;
+            if sincronizador.FilaClientDataSet.BookmarkValid(BookMark) then
+              sincronizador.FilaClientDataSet.GotoBookmark(BookMark);
+            sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
+          end;
+        end;
+      end;
+      sincronizador.FilaClientDataSet.Next;
+    end;
+
+    sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';
+    sincronizador.FilaClientDataSet.Filtered := True;
+    sincronizador.FilaClientDataSet.First;
+    while not sincronizador.FilaClientDataSet.Eof do
+      sincronizador.FilaClientDataSet.Delete;
+
+    if sincronizador.FilaClientDataSet.ChangeCount > 0 then
+      sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  finally
+    sincronizador.FilaClientDataSet.Filter := '';
+    sincronizador.FilaClientDataSet.Filtered := False;
   end;
 end;
 
