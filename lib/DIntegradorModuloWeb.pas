@@ -1673,7 +1673,6 @@ function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet;
 var
   multipartParams: TidMultipartFormDataStream;
   xmlContent: string;
-  sucesso: boolean;
   stream: TStringStream;
   url: string;
   criouHttp: boolean;
@@ -1694,52 +1693,44 @@ begin
   end;
 
   try
-    sucesso := false;
-    while (not sucesso) do
-    begin
-      if (Self.FthreadControl <> nil) and (not Self.FthreadControl.getShouldContinue) then
-        break;
+    _Trans := self.dmPrincipal.startTransaction;
+    try
+      url := getRequestUrlForAction(true, -1);
+      xmlContent := Self.Post(ds, http, url, _Trans);
+      Self.dmPrincipal.commit(_Trans);
 
-      _Trans := self.dmPrincipal.startTransaction;
-      try
-        url := getRequestUrlForAction(true, -1);
-        xmlContent := Self.Post(ds, http, url, _Trans);
-        Self.dmPrincipal.commit(_Trans);
-
-        sucesso := true;
-        Result := Self.getXMLContentAsXMLDom(xmlContent);
-        if duasVias or clientToServer then
+      Result := Self.getXMLContentAsXMLDom(xmlContent);
+      if (Result <> nil) and (duasVias or clientToServer) then
+      begin
+        salvou := True;
+        if self.nomeTabela <> 'softdelete' then
         begin
-          if self.nomeTabela <> 'softdelete' then
-          begin
-            //Atualiza o registro principal local logo após o POST
-            self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST);
-          end;
-        end;
-      except
-        on e: EIdHTTPProtocolException do
-        begin
-          Self.dmPrincipal.rollback(_Trans);
-          if e.ErrorCode = 422 then
-            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage, 'xml')])
-          else if e.ErrorCode = 500 then
-            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: Erro interno no servidor: %s. ',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage])
-          else
-            log :=  Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage]);
-
-          Self.log(log, 'Sync');
-          raise EIntegradorException.Create(log) ; //Logou, agora manda pra cima
-        end;
-        on E: Exception do
-        begin
-          Self.dmPrincipal.rollback(_Trans);
-          log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Erro: %s', [ ClassName, Self.nomeTabela, e.Message]);
-          Self.log(log, 'Sync');
-          raise EIntegradorException.Create(log) ;
+          //Atualiza o registro principal local logo após o POST
+          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST);
         end;
       end;
+    except
+      on e: EIdHTTPProtocolException do
+      begin
+        Self.dmPrincipal.rollback(_Trans);
+        if e.ErrorCode = 422 then
+          log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage, 'xml')])
+        else if e.ErrorCode = 500 then
+          log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: Erro interno no servidor: %s. ',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage])
+        else
+          log :=  Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage]);
+
+        Self.log(log, 'Sync');
+        raise EIntegradorException.Create(log) ; //Logou, agora manda pra cima
+      end;
+      on E: Exception do
+      begin
+        Self.dmPrincipal.rollback(_Trans);
+        log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Erro: %s', [ ClassName, Self.nomeTabela, e.Message]);
+        Self.log(log, 'Sync');
+        raise EIntegradorException.Create(log) ;
+      end;
     end;
-    salvou := sucesso;
   finally
     if criouHttp then
       FreeAndNil(http);
@@ -2201,7 +2192,11 @@ begin
       if lookupIdRemoto > 0 then
         result := IntToStr(lookupIdRemoto)
       else
+      begin
         FIdRemotoEncontrado := False;
+        self.Log(Format('O IdRemoto da tabela %s para o registro local %s não foi encontrado, verifique se a sincronização desta tabela está funcionando, ou as regras de POST',
+                       [UpperCase(translation.lookupRemoteTable), ValorCampo]));
+      end;
     end;
   end
   else

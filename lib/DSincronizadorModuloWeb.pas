@@ -685,10 +685,9 @@ var
   dmIntegrador: TDataIntegradorModuloWeb;
   I: Integer;
   http: TIdHTTP;
-  BookMark: TBookMark;
+  vRecNo: Integer;
 begin
   //Remove da fila todos os registros que não deve ser feito POST, isso é definido no Laboratory_Post_Rules
-
   try
     sincronizador.FilaClientDataSet.First;
     while not sincronizador.FilaClientDataSet.Eof do
@@ -708,9 +707,13 @@ begin
         JsonSetting := pTranslatedTables.Items[dmIntegrador.getNomeTabela];
         if ((JsonSetting <> nil) and (not JsonSetting.PostToServer)) then
         begin
-          BookMark := sincronizador.FilaClientDataSet.GetBookmark;
+          vRecNo := sincronizador.FilaClientDataSet.RecNo;
           sincronizador.FilaClientDataSet.Filter := 'TABELA = ' + QuotedStr(sincronizador.FilaClientDataSetTABELA.AsString);
           sincronizador.FilaClientDataSet.Filtered := True;
+
+          if sincronizador.FilaClientDataSet.RecordCount > 0 then
+            Self.FDataLog.log(Format('Removendo da fila os registros da tabela %s, Quantidade: %s', [sincronizador.FilaClientDataSetTABELA.AsString, IntToStr(sincronizador.FilaClientDataSet.RecordCount)]));
+
           try
             sincronizador.FilaClientDataSet.First;
             while not sincronizador.FilaClientDataSet.Eof do
@@ -724,9 +727,7 @@ begin
           finally
             sincronizador.FilaClientDataSet.Filter := '';
             sincronizador.FilaClientDataSet.Filtered := False;
-            if sincronizador.FilaClientDataSet.BookmarkValid(BookMark) then
-              sincronizador.FilaClientDataSet.GotoBookmark(BookMark);
-            sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
+            sincronizador.FilaClientDataSet.RecNo := vRecNo;
           end;
         end;
       end;
