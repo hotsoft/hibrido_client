@@ -689,59 +689,37 @@ var
 begin
   //Remove da fila todos os registros que não deve ser feito POST, isso é definido no Laboratory_Post_Rules
   try
-    sincronizador.FilaClientDataSet.First;
-    while not sincronizador.FilaClientDataSet.Eof do
+    //Começa no 1 pois a posição 0 é para o softdelete
+    for I := 1 to sincronizador.posterDataModules.Count -1 do
     begin
-      //Começa no 1 pois a posição 0 é para o softdelete
-      for I := 1 to sincronizador.posterDataModules.Count -1 do
-      begin
-        dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
-        if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
-          break
-        else
-          FreeAndNil(dmIntegrador);
-      end;
-
+      dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
       if dmIntegrador <> nil then
       begin
-        JsonSetting := pTranslatedTables.Items[dmIntegrador.getNomeTabela];
-        if ((JsonSetting <> nil) and (not JsonSetting.PostToServer)) then
-        begin
-          vRecNo := sincronizador.FilaClientDataSet.RecNo;
-          sincronizador.FilaClientDataSet.Filter := 'TABELA = ' + QuotedStr(sincronizador.FilaClientDataSetTABELA.AsString);
-          sincronizador.FilaClientDataSet.Filtered := True;
+        try
+          JsonSetting := pTranslatedTables.Items[dmIntegrador.getNomeTabela];
+          if ((JsonSetting <> nil) and (not JsonSetting.PostToServer)) then
+          begin
+            sincronizador.FilaClientDataSet.Filter := 'TABELA = ' + QuotedStr(UpperCase(dmIntegrador.getNomeTabela));
+            sincronizador.FilaClientDataSet.Filtered := True;
+            try
+              if sincronizador.FilaClientDataSet.RecordCount > 0 then
+              begin
+                Self.FDataLog.log(Format('Removendo da fila os registros da tabela %s, Quantidade: %s', [sincronizador.FilaClientDataSetTABELA.AsString, IntToStr(sincronizador.FilaClientDataSet.RecordCount)]));
+                while not sincronizador.FilaClientDataSet.Eof do
+                  sincronizador.FilaClientDataSet.Delete;
 
-          if sincronizador.FilaClientDataSet.RecordCount > 0 then
-            Self.FDataLog.log(Format('Removendo da fila os registros da tabela %s, Quantidade: %s', [sincronizador.FilaClientDataSetTABELA.AsString, IntToStr(sincronizador.FilaClientDataSet.RecordCount)]));
-
-          try
-            sincronizador.FilaClientDataSet.First;
-            while not sincronizador.FilaClientDataSet.Eof do
-            begin
-              sincronizador.FilaClientDataSet.Edit;
-              sincronizador.FilaClientDataSetSincronizado.AsBoolean := True;
-              sincronizador.FilaClientDataSet.Post;
-              sincronizador.FilaClientDataSet.Next;
+                sincronizador.FilaClientDataSet.ApplyUpdates(0);
+              end;
+            finally
+              sincronizador.FilaClientDataSet.Filtered := False;
+              sincronizador.FilaClientDataSet.Filter := '';
             end;
-
-          finally
-            sincronizador.FilaClientDataSet.Filter := '';
-            sincronizador.FilaClientDataSet.Filtered := False;
-            sincronizador.FilaClientDataSet.RecNo := vRecNo;
           end;
+        finally
+          FreeAndNil(dmIntegrador);
         end;
       end;
-      sincronizador.FilaClientDataSet.Next;
     end;
-
-    sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';
-    sincronizador.FilaClientDataSet.Filtered := True;
-    sincronizador.FilaClientDataSet.First;
-    while not sincronizador.FilaClientDataSet.Eof do
-      sincronizador.FilaClientDataSet.Delete;
-
-    if sincronizador.FilaClientDataSet.ChangeCount > 0 then
-      sincronizador.FilaClientDataSet.ApplyUpdates(0);
   finally
     sincronizador.FilaClientDataSet.Filter := '';
     sincronizador.FilaClientDataSet.Filtered := False;
