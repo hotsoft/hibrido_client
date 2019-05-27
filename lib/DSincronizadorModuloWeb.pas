@@ -216,12 +216,22 @@ begin
           MetaDadosClientDataSet.Edit;
           MetaDadosClientDataSetnome_plural.AsString := dimw.nomePlural;
           MetaDadosClientDataSet.Post;
+        end
+        else
+        begin
+          MetaDadosClientDataSet.append;
+          MetaDadosClientDataSetTABELA.AsString := UpperCase(dimw.nomeTabela);
+          MetaDadosClientDataSetVERSION_ID.AsInteger := 0;
+          MetaDadosClientDataSetBaixar.AsBoolean := False;
+          MetaDadosClientDataSetnome_plural.AsString := dimw.nomePlural;
+          MetaDadosClientDataSet.Post;
+          MetaDadosClientDataSet.ApplyUpdates(0);
         end;
       finally
         dimw.Free;
       end;
     end;
-      JVersions.AddPair('metadata', JsonObj);
+    JVersions.AddPair('metadata', JsonObj);
 
     dmIntegrador := self.posterDataModules[0].Create(nil, http); //Apenas para pegar a URL
     pStream := TStringStream.Create(JVersions.ToString, TEncoding.UTF8);
@@ -230,6 +240,7 @@ begin
       http.Request.ContentType := 'application/json';
       http.Request.ContentEncoding := 'utf-8';
       Retorno := http.POST(dmIntegrador.getURL + 'metadata?' + dmIntegrador.getDefaultParams, pStream);
+      http.Request.Clear;
     finally
       FreeAndNil(dmIntegrador);
       FreeAndNil(pStream);
