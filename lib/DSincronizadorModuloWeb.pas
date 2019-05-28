@@ -665,7 +665,10 @@ begin
               end;
             end
             else
+            begin
               Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
+              sincronizador.FilaClientDataSet.Next;
+            end;
           end
         except
           on e: Exception do
