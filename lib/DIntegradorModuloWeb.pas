@@ -1578,17 +1578,20 @@ var
   pStream: TStringStream;
   DetailList: TDetailList;
   Content: IXMLDomDocument2;
+  ResponseContent: TStringStream;
   IdRemoto : integer;
 begin
   result := '';
   pStream := TStringStream.Create('', TEncoding.UTF8);
   DetailList := TDetailList.Create;
+  ResponseContent := TStringStream.Create('', TEncoding.UTF8);
   try
     Self.addDetailsToJsonList(DetailList, ds);
     Self.addMasterTableToJson(DetailList, ds, pStream);
-    result := http.Post(url, pStream);
-    Self.FLastStream.LoadFromStream(pStream);
 
+    http.Post(url, pStream, ResponseContent);
+    result := ResponseContent.DataString;
+    Self.FLastStream.LoadFromStream(pStream);
     Content := Self.getXMLContentAsXMLDom(result);
     if Content <> nil then
       IdRemoto := Self.GetIdRemoto(Content);
@@ -1596,6 +1599,7 @@ begin
   finally
     pStream.Free;
     DetailList.Free;
+    FreeAndNil(ResponseContent);
   end;
 end;
 
@@ -1672,7 +1676,7 @@ function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet;
   var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
 var
   multipartParams: TidMultipartFormDataStream;
-  xmlContent: string;
+  xmlContent: String;
   stream: TStringStream;
   url: string;
   criouHttp: boolean;
@@ -2176,6 +2180,10 @@ begin
     ValorCampo := fieldValue
   else
     ValorCampo := field.AsString;
+
+  if (length(ValorCampo) >= 1) and (pos(#0, ValorCampo) = length(ValorCampo)) then
+    ValorCampo := copy(ValorCampo,1, length(ValorCampo)-1); //Remover um caracter inválido, isso foi encontrado na tabela XFilterDefDetail e foi necessario remove-lo
+
   Result := ValorCampo;
   if translation.lookupRemoteTable <> '' then
   begin
