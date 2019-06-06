@@ -167,6 +167,7 @@ type
     procedure setVersionIdToJSON(pJSON: TJsonObject; pTabela, pId: String);
     function getLastVersionIDLocal(pTabela: String) : Int64;
     function RegistroAindaExiste(pTabela, pID: String): Boolean;
+    function ValidaRegistroFila(pTabela: String; pPkLocal: Integer): Boolean;
     const
       SQLFK =
         ' SELECT'+
@@ -339,9 +340,9 @@ type
     function UnEscapeValueFromServer(const aValue: string): string;
     property OnException: TOnExceptionProcedure read FOnException write SetOnException;
     function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean; virtual;
-    procedure ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
+    function ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
                                   aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
-                                  aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0);
+                                  aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
     function getURL: string; virtual;
     function getDefaultParams: string; virtual;
@@ -430,20 +431,20 @@ begin
           Self.Log(vLog);
           raise EIntegradorException.Create(vLog);
         end;
-        Self.ImportXMLFromServer(Self, retornoStream, numRegistros, LastId);
+        keepImporting := Self.ImportXMLFromServer(Self, retornoStream, numRegistros, LastId);
       end;
     finally
       retornoStream.Free;
     end;
-    keepImporting := (maxRecords > 0) and (numRegistros >= maxRecords);
+    keepImporting := keepImporting and (maxRecords > 0) and (numRegistros >= maxRecords);
   end;
   afterDadosAtualizados;
   RegistrosEncontrados := numRegistros;
 end;
 
-procedure TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
+function TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
                                                        aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
-                                                       aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0 );
+                                                       aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0 ) : Boolean;
 var
   doc: IXMLDomDocument2;
   list : IXMLDomNodeList;
@@ -451,6 +452,7 @@ var
   node : IXMLDomNode;
   LastVersionId: integer;
 begin
+  Result := True;
   //aTabelaIgnorar e aIdRegistroIgnorar são usados na recursividade, um exame que foi importado e a requisição foi carregada de modo recursivo
   //evita de salvar o exame duas vezes
   if (not (aRetornoStream.DataString.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
@@ -476,7 +478,10 @@ begin
           if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
             continue;
           if not aDataIntegradorModuloWeb.importRecord(node) and aDataIntegradorModuloWeb.StopOnGetRecordError then
-            Break;
+          begin
+            Result := False;
+            Break
+          end;
 
           LastVersionId := -1;
           if node.selectSingleNode(dasherize(aDataIntegradorModuloWeb.getVersionFieldName)) <> nil then
@@ -1302,7 +1307,9 @@ begin
       qry.Open;
       while not qry.Eof do
       begin
-        aProc(qry);
+        //Deve enviar o registro filho apenas se ele estiver na fila.
+        if self.ValidaRegistroFila(aTabelaDetalhe.nomeTabela, qry.FieldByName(aTabelaDetalhe.nomePKLocal).AsInteger) then
+          aProc(qry);
         qry.Next;
       end;
     except
@@ -1312,6 +1319,23 @@ begin
          raise;
        end;
     end;
+  finally
+    FreeAndNil(qry);
+  end;
+end;
+
+function TDataIntegradorModuloWeb.ValidaRegistroFila(pTabela: String; pPkLocal: Integer) : Boolean;
+var
+  qry: TSQLDataSet;
+begin
+  //Verifica se o registro esta na fila, dessa forma pode ser feito o POST dos detalhes, caso não haja um registro filho na fila, apenas o pai deve ser sincronizado
+  qry := dmPrincipal.getQuery;
+  try
+    qry.CommandText := 'select * from HIBRIDOFILASINCRONIZACAO WHERE TABELA = :TABELA AND ID = :ID';
+    qry.ParamByName('TABELA').AsString := UpperCase(Trim(pTabela));
+    qry.ParamByName('ID').AsInteger := pPkLocal;
+    qry.Open;
+    Result := not qry.IsEmpty;
   finally
     FreeAndNil(qry);
   end;
@@ -1554,17 +1578,20 @@ var
   pStream: TStringStream;
   DetailList: TDetailList;
   Content: IXMLDomDocument2;
+  ResponseContent: TStringStream;
   IdRemoto : integer;
 begin
   result := '';
   pStream := TStringStream.Create('', TEncoding.UTF8);
   DetailList := TDetailList.Create;
+  ResponseContent := TStringStream.Create('', TEncoding.UTF8);
   try
     Self.addDetailsToJsonList(DetailList, ds);
     Self.addMasterTableToJson(DetailList, ds, pStream);
-    result := http.Post(url, pStream);
-    Self.FLastStream.LoadFromStream(pStream);
 
+    http.Post(url, pStream, ResponseContent);
+    result := ResponseContent.DataString;
+    Self.FLastStream.LoadFromStream(pStream);
     Content := Self.getXMLContentAsXMLDom(result);
     if Content <> nil then
       IdRemoto := Self.GetIdRemoto(Content);
@@ -1572,6 +1599,7 @@ begin
   finally
     pStream.Free;
     DetailList.Free;
+    FreeAndNil(ResponseContent);
   end;
 end;
 
@@ -1648,8 +1676,7 @@ function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet;
   var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
 var
   multipartParams: TidMultipartFormDataStream;
-  xmlContent: string;
-  sucesso: boolean;
+  xmlContent: String;
   stream: TStringStream;
   url: string;
   criouHttp: boolean;
@@ -1670,52 +1697,44 @@ begin
   end;
 
   try
-    sucesso := false;
-    while (not sucesso) do
-    begin
-      if (Self.FthreadControl <> nil) and (not Self.FthreadControl.getShouldContinue) then
-        break;
+    _Trans := self.dmPrincipal.startTransaction;
+    try
+      url := getRequestUrlForAction(true, -1);
+      xmlContent := Self.Post(ds, http, url, _Trans);
+      Self.dmPrincipal.commit(_Trans);
 
-      _Trans := self.dmPrincipal.startTransaction;
-      try
-        url := getRequestUrlForAction(true, -1);
-        xmlContent := Self.Post(ds, http, url, _Trans);
-        Self.dmPrincipal.commit(_Trans);
-
-        sucesso := true;
-        Result := Self.getXMLContentAsXMLDom(xmlContent);
-        if duasVias or clientToServer then
+      Result := Self.getXMLContentAsXMLDom(xmlContent);
+      if (Result <> nil) and (duasVias or clientToServer) then
+      begin
+        salvou := True;
+        if self.nomeTabela <> 'softdelete' then
         begin
-          if self.nomeTabela <> 'softdelete' then
-          begin
-            //Atualiza o registro principal local logo após o POST
-            self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST);
-          end;
-        end;
-      except
-        on e: EIdHTTPProtocolException do
-        begin
-          Self.dmPrincipal.rollback(_Trans);
-          if e.ErrorCode = 422 then
-            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage, 'xml')])
-          else if e.ErrorCode = 500 then
-            log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: Erro interno no servidor: %s. ',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage])
-          else
-            log :=  Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage]);
-
-          Self.log(log, 'Sync');
-          raise EIntegradorException.Create(log) ; //Logou, agora manda pra cima
-        end;
-        on E: Exception do
-        begin
-          Self.dmPrincipal.rollback(_Trans);
-          log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Erro: %s', [ ClassName, Self.nomeTabela, e.Message]);
-          Self.log(log, 'Sync');
-          raise EIntegradorException.Create(log) ;
+          //Atualiza o registro principal local logo após o POST
+          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST);
         end;
       end;
+    except
+      on e: EIdHTTPProtocolException do
+      begin
+        Self.dmPrincipal.rollback(_Trans);
+        if e.ErrorCode = 422 then
+          log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d, Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, Self.GetErrorMessage(e.ErrorMessage, 'xml')])
+        else if e.ErrorCode = 500 then
+          log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: Erro interno no servidor: %s. ',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage])
+        else
+          log :=  Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Código de erro: %d. Erro: %s.',[ClassName, Self.nomeTabela, e.ErrorCode, e.ErrorMessage]);
+
+        Self.log(log, 'Sync');
+        raise EIntegradorException.Create(log) ; //Logou, agora manda pra cima
+      end;
+      on E: Exception do
+      begin
+        Self.dmPrincipal.rollback(_Trans);
+        log := Format('Erro ao tentar salvar registro. Classe: %s, Tabela: %s, Erro: %s', [ ClassName, Self.nomeTabela, e.Message]);
+        Self.log(log, 'Sync');
+        raise EIntegradorException.Create(log) ;
+      end;
     end;
-    salvou := sucesso;
   finally
     if criouHttp then
       FreeAndNil(http);
@@ -1936,7 +1955,6 @@ begin
       qry.First;
       while not qry.Eof do
       begin
-        inc(total);
         if (not self.shouldContinue) then
           break;
 
@@ -1947,7 +1965,10 @@ begin
         try
           saveRecordToRemote(qry, salvou, http);
           if salvou then
+          begin
             Self.Log('Registro Salvo');
+            inc(total);
+          end;
         except
           on e: Exception do
           begin
@@ -1955,8 +1976,9 @@ begin
               Self.FOnException(haPost, Self, E.ClassName, E.Message, qry.FieldByName(Self.nomePKLocal).AsInteger);
 
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
-            if stopOnPostRecordError then
-              raise;
+            break;
+            //if stopOnPostRecordError then
+            //  raise
           end;
         end;
         qry.Next;
@@ -2158,6 +2180,10 @@ begin
     ValorCampo := fieldValue
   else
     ValorCampo := field.AsString;
+
+  if (length(ValorCampo) >= 1) and (pos(#0, ValorCampo) = length(ValorCampo)) then
+    ValorCampo := copy(ValorCampo,1, length(ValorCampo)-1); //Remover um caracter inválido, isso foi encontrado na tabela XFilterDefDetail e foi necessario remove-lo
+
   Result := ValorCampo;
   if translation.lookupRemoteTable <> '' then
   begin
@@ -2174,7 +2200,11 @@ begin
       if lookupIdRemoto > 0 then
         result := IntToStr(lookupIdRemoto)
       else
+      begin
         FIdRemotoEncontrado := False;
+        self.Log(Format('O IdRemoto da tabela %s para o registro local %s não foi encontrado, verifique se a sincronização desta tabela está funcionando, ou as regras de POST',
+                       [UpperCase(translation.lookupRemoteTable), ValorCampo]));
+      end;
     end;
   end
   else
