@@ -131,12 +131,6 @@ type
     procedure LimpaFilaSincronizacao;
     procedure RestauraFilaSincronizacao;
     procedure ValidaPostRules(pTranslatedTables: TJsonDictionary);
-    function ValidaAtualizacaoDLL : Boolean;
-    function GetRealExeName: string;
-    function getVersaoDLL: TVersionInfo;
-    function UnZip(ZipName, Destination: string): boolean;
-    function WinExecAndWait32(FileName, WorkDir: String; Visibility: integer): integer;
-    procedure RemovePasta(Dir: String);
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
@@ -151,7 +145,7 @@ var
 
 implementation
 
-uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils, Zip, Shellapi;
+uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils, Zip, Shellapi, UtilsUnitAgendadorUn;
 
 {$R *.dfm}
 
@@ -598,248 +592,105 @@ begin
   if Self.Fnotifier <> nil then
     Synchronize(setMainFormPuttingTrue);
 
-  if ValidaAtualizacaoDLL then
-  begin
+  try
+    CoInitializeEx(nil, 0);
     try
-      CoInitializeEx(nil, 0);
+      http := nil;
+      dm := sincronizador.getNewDataPrincipal;
       try
-        http := nil;
-        dm := sincronizador.getNewDataPrincipal;
         try
-          try
-            http := getHTTPInstance;
-            lTranslateTableNames := TJsonDictionary.Create;
-            Self.PopulateTranslatedTableNames(lTranslateTableNames);
-            sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
-            sincronizador.FilaClientDataSet.Open;
+          http := getHTTPInstance;
+          lTranslateTableNames := TJsonDictionary.Create;
+          Self.PopulateTranslatedTableNames(lTranslateTableNames);
+          sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
+          sincronizador.FilaClientDataSet.Open;
 
-            self.ValidaPostRules(lTranslateTableNames);
+          self.ValidaPostRules(lTranslateTableNames);
 
-            Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
-            sincronizador.FilaClientDataSet.First;
-            while not sincronizador.FilaClientDataSet.Eof do
+          Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
+          sincronizador.FilaClientDataSet.First;
+          while not sincronizador.FilaClientDataSet.Eof do
+          begin
+            if sincronizador.FilaClientDataSetOPERACAO.AsString = 'D' then //Delete
             begin
-              if sincronizador.FilaClientDataSetOPERACAO.AsString = 'D' then //Delete
+              Self.log('Enviando delete da ' + sincronizador.FilaClientDataSetTABELA.AsString + ' ID: ' + sincronizador.FilaClientDataSetID.AsString, 'Sync');
+              dmIntegrador := sincronizador.posterDataModules[0].Create(nil, http); //Aciona o SoftDelete
+            end
+            else
+            begin
+              //Começa no 1 pois a posição 0 é para o softdelete
+              for I := 1 to sincronizador.posterDataModules.Count -1 do
               begin
-                Self.log('Enviando delete da ' + sincronizador.FilaClientDataSetTABELA.AsString + ' ID: ' + sincronizador.FilaClientDataSetID.AsString, 'Sync');
-                dmIntegrador := sincronizador.posterDataModules[0].Create(nil, http); //Aciona o SoftDelete
-              end
-              else
-              begin
-                //Começa no 1 pois a posição 0 é para o softdelete
-                for I := 1 to sincronizador.posterDataModules.Count -1 do
-                begin
-                  dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
-                  if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
-                    break
-                  else
-                    FreeAndNil(dmIntegrador);
-                end;
-              end;
-
-              if dmIntegrador <> nil then
-              begin
-                dmIntegrador.IdAtual := sincronizador.FilaClientDataSetID.AsInteger;
-                Self.log('Sincronizando, restam ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + 'registros da tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
-                if not Self.ShouldContinue then
-                  Break;
-
-                try
-                  JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
-                  if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or
-                    ((JsonSetting = nil) and (not Self.FRestrictPosters)) then
-                  begin
-                    if (JsonSetting <> nil) then
-                      dmIntegrador.SetStatementForPost(JsonSetting.PostStatement);
-                    dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
-                    dmIntegrador.notifier := FNotifier;
-                    dmIntegrador.threadControl := Self.FthreadControl;
-                    dmIntegrador.CustomParams := Self.FCustomParams;
-                    dmIntegrador.dmPrincipal := dm;
-                    dmIntegrador.DataLog := Self.FDataLog;
-                    dmIntegrador.SetOnException(Self.FOnException);
-
-                    if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
-                      self.LimpaFilaSincronizacao
-                    else
-                    begin
-                      self.RestauraFilaSincronizacao;
-                      sincronizador.FilaClientDataSet.Next;
-                    end;
-                  end;
-
-                finally
+                dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+                if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
+                  break
+                else
                   FreeAndNil(dmIntegrador);
+              end;
+            end;
+
+            if dmIntegrador <> nil then
+            begin
+              dmIntegrador.IdAtual := sincronizador.FilaClientDataSetID.AsInteger;
+              Self.log('Sincronizando, restam ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + 'registros da tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
+              if not Self.ShouldContinue then
+                Break;
+
+              try
+                JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
+                if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or
+                  ((JsonSetting = nil) and (not Self.FRestrictPosters)) then
+                begin
+                  if (JsonSetting <> nil) then
+                    dmIntegrador.SetStatementForPost(JsonSetting.PostStatement);
+                  dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
+                  dmIntegrador.notifier := FNotifier;
+                  dmIntegrador.threadControl := Self.FthreadControl;
+                  dmIntegrador.CustomParams := Self.FCustomParams;
+                  dmIntegrador.dmPrincipal := dm;
+                  dmIntegrador.DataLog := Self.FDataLog;
+                  dmIntegrador.SetOnException(Self.FOnException);
+
+                  if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
+                    self.LimpaFilaSincronizacao
+                  else
+                  begin
+                    self.RestauraFilaSincronizacao;
+                    sincronizador.FilaClientDataSet.Next;
+                  end;
                 end;
-              end
-              else
-              begin
-                Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
-                sincronizador.FilaClientDataSet.Next;
+
+              finally
+                FreeAndNil(dmIntegrador);
               end;
             end
-          except
-            on e: Exception do
+            else
             begin
-              self.RestauraFilaSincronizacao;
+              Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
               sincronizador.FilaClientDataSet.Next;
-              Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
             end;
+          end
+        except
+          on e: Exception do
+          begin
+            self.RestauraFilaSincronizacao;
+            sincronizador.FilaClientDataSet.Next;
+            Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
           end;
-        finally
-          dm := nil;
-          if http <> nil then
-            FreeAndNil(http);
-          FreeAndNil(lTranslateTableNames);
         end;
       finally
-        CoUninitialize;
+        dm := nil;
+        if http <> nil then
+          FreeAndNil(http);
+        FreeAndNil(lTranslateTableNames);
       end;
     finally
-      if Self.Fnotifier <> nil then
-        Synchronize(finishPuttingProcess);
+      CoUninitialize;
     end;
-  end;
-end;
-
-function TRunnerThreadPuters.ValidaAtualizacaoDLL : Boolean;
-var
-  ms: TMemoryStream;
-  versao: String;
-  arquivoZIP, PastaAtualizador, PastaMigrations, PastaAtualizacao,
-  NomeArquivoDLL: String;
-  F: TSearchRec;
-begin
-  Result := True;
-  Self.log('Verificando atualização da DLL', 'Sync');
-  if (Self.FCustomParams <> nil) then
-  begin
-    try
-      versao := IntToStr(Self.getVersaoDLL.major) + '.' + IntToStr(Self.getVersaoDLL.minor) + '.' + IntToStr(Self.getVersaoDLL.release) + '.' + IntToStr(Self.getVersaoDLL.build);
-      ms := Self.FCustomParams.getAtualizacaoDLLFromServer(versao);
-      if ms <> nil then
-      begin
-        //Se houver atualização o result deve ser false para que a dll seja substituida e executada (já atualizada) no proximo ciclo
-        Result := False;
-        arquivoZIP := ExtractFilePath(self.GetRealExeName)+'Atualizacao.zip';
-        Self.log('Nova versão de DLL encontrada, atualizando', 'Sync');
-        if FileExists(arquivoZIP) then
-          DeleteFile(PWideChar(arquivoZIP));
-
-        if DirectoryExists(ExtractFilePath(self.GetRealExeName) + 'Atualizacao') then
-          self.RemovePasta(ExtractFilePath(self.GetRealExeName) + 'Atualizacao');
-
-        ForceDirectories(ExtractFilePath(self.GetRealExeName) + 'Atualizacao');
-
-        ms.SaveToFile(arquivoZIP);
-        Self.log('Descompactando arquivo de atualização', 'Sync');
-        self.UnZip(arquivoZIP, ExtractFilePath(self.GetRealExeName) + 'Atualizacao');
-        DeleteFile(PWideChar(arquivoZIP));
-      end
-      else
-        Result := True;
-    except
-      on E: Exception do
-      begin
-        Self.log('Erro ao atualizar versão HibridoClient.dll. Erro: ' + E.Message, 'Sync');
-        Result := False;
-      end;
-    end;
-  end;
-end;
-
-procedure TRunnerThreadPuters.RemovePasta(Dir: String);
-var
-  Result: TSearchRec; Found: Boolean;
-begin
-  Found := False;
-  if FindFirst(Dir + '\*', faAnyFile, Result) = 0 then
-    while not Found do begin
-      if (Result.Attr and faDirectory = faDirectory) AND (Result.Name <> '.') AND (Result.Name <> '..') then RemovePasta(Dir + '\' + Result.Name)
-      else if (Result.Attr and faAnyFile <> faDirectory) then DeleteFile(PWideChar(Dir + '\' + Result.Name));
-      Found := FindNext(Result) <> 0;
-    end;
-  SysUtils.FindClose(Result);
-  RemoveDir(Dir);
-end;
-
-function TRunnerThreadPuters.WinExecAndWait32(FileName: String; WorkDir: String; Visibility: integer): integer;
-var
-   zAppName: array[0..512] of char;
-   zCurDir: array[0..255] of char;
-   StartupInfo: TStartupInfo;
-   ProcessInfo: TProcessInformation;
-begin
-  StrPCopy(zAppName,FileName);
-  StrPCopy(zCurDir,WorkDir);
-  FillChar(StartupInfo,Sizeof(StartupInfo),#0);
-  StartupInfo.cb:=Sizeof(StartupInfo);
-  StartupInfo.dwFlags:=STARTF_USESHOWWINDOW;
-  StartupInfo.wShowWindow:=Visibility;
-
-  if not CreateProcess(nil,zAppName,nil,nil,False,CREATE_NEW_CONSOLE or NORMAL_PRIORITY_CLASS,nil,zCurDir,StartupInfo,ProcessInfo) then
-	 Result:=-1
-  else
-  begin
-	 WaitforSingleObject(ProcessInfo.hProcess,INFINITE);
-	 GetExitCodeProcess(ProcessInfo.hProcess,DWORD(Result));
-  end;
-end;
-
-function TRunnerThreadPuters.UnZip(ZipName: string; Destination: string): boolean;
-var
-  UnZipper: TZipFile;
-begin
-  UnZipper := TZipFile.Create();
-  try
-    UnZipper.Open(ZipName, zmRead);
-    UnZipper.ExtractAll(Destination);
-    UnZipper.Close;
   finally
-    FreeAndNil(UnZipper);
+    if Self.Fnotifier <> nil then
+      Synchronize(finishPuttingProcess);
   end;
-  Result := True;
-end;
-
-function TRunnerThreadPuters.GetRealExeName: string;
-var
-  ExeName:array[0..MAX_PATH] of char;
-begin
-  fillchar(ExeName,SizeOf(ExeName),#0);
-  GetModuleFileName(HInstance,ExeName,MAX_PATH);
-  Result:=ExeName;
-end;
-
-function TRunnerThreadPuters.getVersaoDLL: TVersionInfo;
-type
-  PFFI = ^vs_FixedFileInfo;
-var
-  F       : PFFI;
-  Handle  : Dword;
-  Len     : Longint;
-  Data    : Pchar;
-  Buffer  : Pointer;
-  Tamanho : Dword;
-  Parquivo: Pchar;
-  Arquivo : String;
-begin
-  Arquivo  := self.GetRealExeName;
-  Parquivo := StrAlloc(Length(Arquivo) + 1);
-  StrPcopy(Parquivo, Arquivo);
-  Len := GetFileVersionInfoSize(Parquivo, Handle);
-  Result := assignVersion(0,0,0,0);
-  if Len > 0 then
-  begin
-    Data:=StrAlloc(Len+1);
-    if GetFileVersionInfo(Parquivo,Handle,Len,Data) then
-    begin
-       VerQueryValue(Data, '',Buffer,Tamanho);
-       F := PFFI(Buffer);
-       Result := assignVersion(HiWord(F^.dwFileVersionMs), LoWord(F^.dwFileVersionMs), HiWord(F^.dwFileVersionLs), Loword(F^.dwFileVersionLs));
-    end;
-    StrDispose(Data);
-  end;
-  StrDispose(Parquivo);
 end;
 
 procedure TRunnerThreadPuters.ValidaPostRules(pTranslatedTables: TJsonDictionary);
