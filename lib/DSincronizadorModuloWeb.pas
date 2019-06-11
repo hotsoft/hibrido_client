@@ -699,7 +699,7 @@ begin
       if Self.Fnotifier <> nil then
         Synchronize(finishPuttingProcess);
     end;
-  end
+  end;
 end;
 
 function TRunnerThreadPuters.ValidaAtualizacaoDLL : Boolean;
@@ -734,6 +734,7 @@ begin
         ms.SaveToFile(arquivoZIP);
         Self.log('Descompactando arquivo de atualização', 'Sync');
         self.UnZip(arquivoZIP, ExtractFilePath(self.GetRealExeName) + 'Atualizacao');
+        DeleteFile(PWideChar(arquivoZIP));
       end
       else
         Result := True;
