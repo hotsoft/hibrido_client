@@ -610,12 +610,13 @@ begin
             self.ValidaPostRules(lTranslateTableNames);
 
           //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
+          //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
           Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
           UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila');
           self.EnviarFila(http, lTranslateTableNames, dm);
 
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas > 0 order by idhibridofilasincronizacao, tentativas';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by tentativas, idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
           if sincronizador.FilaClientDataSet.RecordCount > 0 then
