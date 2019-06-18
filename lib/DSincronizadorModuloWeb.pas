@@ -706,7 +706,6 @@ begin
             sincronizador.FilaClientDataSet.Next;
           end;
         end;
-
       finally
         FreeAndNil(dmIntegrador);
       end;
@@ -770,13 +769,13 @@ procedure TRunnerThreadPuters.RestauraFilaSincronizacao;
 var
   BookMark: TBookMark;
 begin
+  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
   sincronizador.FilaClientDataSet.Edit;
   sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
   sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
   sincronizador.FilaClientDataSet.Post;
   sincronizador.FilaClientDataSet.ApplyUpdates(0);
 
-  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
   try
     sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';
     sincronizador.FilaClientDataSet.Filtered := True;
@@ -786,7 +785,6 @@ begin
       sincronizador.FilaClientDataSet.Edit;
       sincronizador.FilaClientDataSetSincronizado.Clear;
       sincronizador.FilaClientDataSet.Post;
-      sincronizador.FilaClientDataSet.Next;
     end;
   finally
     sincronizador.FilaClientDataSet.Filter := '';
