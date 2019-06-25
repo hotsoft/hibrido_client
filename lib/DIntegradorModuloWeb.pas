@@ -634,7 +634,7 @@ begin
           UtilsUnitAgendadorUn.WriteRedLog(e.Message);
           {$ENDIF}
           Self.log(e.Message);
-          Self.resyncRecord(id);
+          //Self.resyncRecord(id);
           raise;
         end;
       end;
