@@ -2,7 +2,7 @@ unit ISincronizacaoNotifierUnit;
 
 interface
 
-Uses System.Generics.Collections;
+Uses System.Generics.Collections, Classes;
 
 type
   TCustomParams = class(TDictionary<string, string>)
@@ -29,6 +29,7 @@ type
   ICustomParams = interface
     function getCustomParams: TCustomParams;
     function getJsonFromServer(var aRestrictPosters: boolean): string;
+    function getAtualizacaoDLLFromServer(pVersaoDLL: String): TMemoryStream;
   end;
 
 implementation

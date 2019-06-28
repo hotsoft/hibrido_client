@@ -43,6 +43,7 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
   end
   object FilaProvider: TDataSetProvider
     DataSet = FilaDataSet
+    Options = [poAllowCommandText, poUseQuoteChar]
     Left = 120
     Top = 16
   end

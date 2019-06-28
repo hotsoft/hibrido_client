@@ -208,12 +208,13 @@ type
     FVersionIdAtual: Integer;
     FIdRemotoEncontrado : Boolean;
     FFilaSincronizacaoCDS: TClientDataSet;
+    FRecursividadeAtiva: Boolean;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
-    function importRecord(node: IXMLDomNode): boolean; virtual;
-    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String): Boolean;
+    function importRecord(node: IXMLDomNode; var _LastId: Integer): boolean; virtual;
+    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer): Boolean;
     function jaExiste(aNode:IXMLDOMNode; const id: integer; Integrador: TDataIntegradorModuloWeb; var aCustomWhere: string; var pIdLocal: Integer): Int64;
     function getFieldList(node: IXMLDomNode): string;
     function getFieldUpdateList(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
@@ -272,7 +273,7 @@ type
     function JsonObjectHasPair(const aName: string; aJson: TJSONObject): boolean;
     function DataSetToArray(aDs: TDataSet): TStringDictionary; virtual;
     procedure BeforeUpdateInsertRecord(aParentIntegrador, aIntegrador:TDataIntegradorModuloWeb; node: IXMLDomNode; const id: integer; var handled: boolean); virtual;
-    function ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String): Boolean; virtual;
+    function ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer): Boolean; virtual;
     function getTranslatedTable(const aServerName: string): TDataIntegradorModuloWeb; virtual;
     function getNomeSingular: string; virtual;
     procedure SetNomeSingular(const Value: string); virtual;
@@ -322,6 +323,7 @@ type
     destructor Destroy; override;
     function getNomeTabela: string; virtual;
     procedure setNomeTabela(const Value: string); virtual;
+    procedure SetRecursividadeAtiva(const Value: Boolean);
     procedure SetTranslateTableNames(aTranslateTableNames: TJsonDictionary);
     property nomeTabela: string read GetNomeTabela write setNomeTabela;
     property NomeSingular: string read getNomeSingular write SetNomeSingular;
@@ -330,6 +332,7 @@ type
     property IdRemotoAtual: Integer read GetIdRemotoAtual;
     property IdAtual: Integer read GetIdAtual write setIdAtual;
     property VersionIdAtual: Integer read GetVersionIdAtual;
+    property RecursividadeAtiva: Boolean read FRecursividadeAtiva write SetRecursividadeAtiva;
     function getFieldDictionaryList: TFieldDictionaryList;
     function getTabelasDetalhe: TTabelaDetalheList;
     property EncodeJsonValues: boolean read FEncodeJsonValues write FEncodeJsonValues;
@@ -477,7 +480,7 @@ begin
         begin
           if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
             continue;
-          if not aDataIntegradorModuloWeb.importRecord(node) and aDataIntegradorModuloWeb.StopOnGetRecordError then
+          if not aDataIntegradorModuloWeb.importRecord(node, aLastId) and aDataIntegradorModuloWeb.StopOnGetRecordError then
           begin
             Result := False;
             Break
@@ -506,7 +509,7 @@ var
   qryVersionId: TSQLDataSet;
   _trans: TDBXTransaction;
 begin
-  if (getLastVersionIDLocal(Self.nomeTabela) < aLastVersionId) and (UpperCase(Self.nomeTabela) <> 'SOFTDELETE') then
+  if (getLastVersionIDLocal(Self.nomeTabela) < aLastVersionId) and (UpperCase(Self.nomeTabela) <> 'SOFTDELETE') and (not self.FRecursividadeAtiva) then
   begin
     if Transaction = nil then
       _trans := dmPrincipal.startTransaction
@@ -611,7 +614,7 @@ begin
   result := 500;
 end;
 
-function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode): boolean;
+function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode; var _LastId: Integer): boolean;
 var
   id: integer;
   _Trans: TDBXTransaction;
@@ -624,7 +627,7 @@ begin
     begin
       _Trans := dmPrincipal.startTransaction;
       try
-        Result := Self.updateInsertRecord(node, id, opGET);
+        Result := Self.updateInsertRecord(node, id, opGET, _LastId);
         dmPrincipal.commit(_Trans);
       except
         on E:Exception do
@@ -634,7 +637,7 @@ begin
           UtilsUnitAgendadorUn.WriteRedLog(e.Message);
           {$ENDIF}
           Self.log(e.Message);
-          Self.resyncRecord(id);
+          //Self.resyncRecord(id);
           raise;
         end;
       end;
@@ -859,7 +862,7 @@ begin
   Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal);
 end;
 
-function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String) : Boolean;
+function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer) : Boolean;
 var
   i: integer;
   name: string;
@@ -881,6 +884,7 @@ var
   Version_ID_From_Server: Int64;
   vIdLocal: Integer;
   _Trans: TDBXTransaction;
+  _LastIdFilho: Integer;
 begin
   Result := False;
   NewId := 0;
@@ -936,13 +940,14 @@ begin
     _trans := dmPrincipal.startTransaction;
     try
       Self.ExecQuery(qry);
+      _LastId := vIdLocal;
 
       if pOperacao = opGET then
         Self.UpdateHibridoMetaDadosRemotos(Self.GetVersionIdAtual, _trans);
 
       Self.UpdateHibridoDadosRemotos(Self.GetVersionIdAtual, vIdLocal, id, Integrador.nomeTabela, pOperacao, _trans);
       dmPrincipal.commit(_trans);
-      Result := True;
+       Result := True;
     except
       on E: Exception do
       begin
@@ -972,7 +977,7 @@ begin
             Self.BeforeUpdateInsertRecord(Self, Detail, nodeItem, ChildId, handled);
             if not handled then
             begin
-              Result := Self.ExecInsertRecord(nodeItem, ChildId, Detail, pOperacao);
+              Result := Self.ExecInsertRecord(nodeItem, ChildId, Detail, pOperacao, _LastIdFilho);
               if not Result then
                 exit;
             end;
@@ -1002,7 +1007,7 @@ begin
   end;
 end;
 
-function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String) : Boolean;
+function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer) : Boolean;
 var
   handled : boolean;
 begin
@@ -1010,7 +1015,7 @@ begin
   Result := True;
   Self.BeforeUpdateInsertRecord(nil, Self, node, id, handled);
   if not handled then
-    Result := Self.ExecInsertRecord(node, id, Self, pOperacao);
+    Result := Self.ExecInsertRecord(node, id, Self, pOperacao, _LastId);
 end;
 
 procedure TDataIntegradorModuloWeb.updateSingletonRecord(node: IXMLDOMNode);
@@ -1682,6 +1687,7 @@ var
   criouHttp: boolean;
   log: string;
   _Trans: TDBXTransaction;
+  _LastId: Integer;
   //version_id: Int64;
 begin
   Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
@@ -1710,7 +1716,7 @@ begin
         if self.nomeTabela <> 'softdelete' then
         begin
           //Atualiza o registro principal local logo após o POST
-          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST);
+          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
         end;
       end;
     except
@@ -2337,6 +2343,11 @@ end;
 procedure TDataIntegradorModuloWeb.setNomeTabela(const Value: string);
 begin
   Self.FnomeTabela := Value;
+end;
+
+procedure TDataIntegradorModuloWeb.SetRecursividadeAtiva(const Value: Boolean);
+begin
+  Self.FRecursividadeAtiva := Value;
 end;
 
 procedure TDataIntegradorModuloWeb.SetthreadControl(const Value: IThreadControl);
