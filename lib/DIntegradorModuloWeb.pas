@@ -403,6 +403,7 @@ var
   keepImporting: boolean;
   vLog: string;
   retornoStream: TStringStream;
+  vHTTP: TIdHTTP;
 begin
   keepImporting := true;
   while keepImporting do
@@ -423,7 +424,10 @@ begin
 
     retornoStream := TStringStream.Create('', TEncoding.UTF8);
     try
-      if getRemoteXmlContent(url, Self.getHTTP, erro, retornoStream) then
+      vHTTP := Self.getHTTP;
+      vHTTP.Request.CustomHeaders.Clear;
+      vHTTP.Request.Clear;
+      if getRemoteXmlContent(url, vHTTP, erro, retornoStream) then
       begin
         Self.FLastStream.Clear;
         Self.FLastStream.LoadFromStream(retornoStream);
@@ -764,15 +768,11 @@ var
   Field: TFieldDictionary;
   lFormatSettings: TFormatSettings;
 begin
+  FIdRemotoAtual := StrToInt(node.selectSingleNode('id').text);
+  FVersionIdAtual := StrToInt(node.selectSingleNode('version-id').text);
   //Preenche os Parametros
   for i := 0 to node.childNodes.length - 1 do
   begin
-    FIdRemotoAtual := StrToInt(node.selectSingleNode('id').text);
-    if node.selectSingleNode('version-id') <> nil then
-      FVersionIdAtual := StrToInt(node.selectSingleNode('version-id').text)
-    else
-      FVersionIdAtual := -1;
-
     if (node.childNodes[i].attributes.getNamedItem('type') <> nil) and (node.childNodes[i].attributes.getNamedItem('type').text = 'array') then
     begin
       if (ChildrenNodes <> nil) and (not ChildrenNodes.ContainsKey(node.childNodes[i].nodeName)) then
@@ -782,6 +782,7 @@ begin
     name := LowerCase(translateFieldNameServerToPdv(node.childNodes.item[i], Integrador));
     ValorCampo := translateFieldValue(node.childNodes.item[i], Integrador);
     if name <> '*' then
+    begin
       if Self.getIncludeFieldNameOnList(DMLOperation, name, Integrador) then
       begin
         if ValorCampo = 'NULL' then
@@ -830,6 +831,7 @@ begin
           end;
         end;
       end;
+    end;
   end;
   //Ultimo Campo é o ControleHibrido
   qry.ParamByName('CONTROLEHIBRIDO').AsString := 'S';
@@ -942,7 +944,8 @@ begin
       Self.ExecQuery(qry);
       _LastId := vIdLocal;
 
-      if pOperacao = opGET then
+      //Quando o XML possui registos filhos, só deve fazer esse update quando estiver passando pela tabela principal
+      if (pOperacao = opGET) and (self.nometabela = Integrador.nomeTabela) then
         Self.UpdateHibridoMetaDadosRemotos(Self.GetVersionIdAtual, _trans);
 
       Self.UpdateHibridoDadosRemotos(Self.GetVersionIdAtual, vIdLocal, id, Integrador.nomeTabela, pOperacao, _trans);
