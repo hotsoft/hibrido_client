@@ -654,7 +654,9 @@ var
   dmIntegrador: TDataIntegradorModuloWeb;
   i: Integer;
   JsonSetting: TJsonSetting;
+  Aux: Integer;
 begin
+  Aux := 0;
   sincronizador.FilaClientDataSet.First;
   while not sincronizador.FilaClientDataSet.Eof do
   begin
@@ -679,7 +681,8 @@ begin
     if dmIntegrador <> nil then
     begin
       dmIntegrador.IdAtual := sincronizador.FilaClientDataSetID.AsInteger;
-      Self.log('Sincronizando, restam ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + 'registros da tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
+      if Aux mod 10 = 0 then
+        UtilsUnitAgendadorUn.WriteGreenLog('Restam ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + 'registros');
       if not Self.ShouldContinue then
         Break;
 
@@ -715,6 +718,7 @@ begin
       Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
       sincronizador.FilaClientDataSet.Next;
     end;
+    inc(Aux);
   end
 end;
 

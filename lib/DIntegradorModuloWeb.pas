@@ -1154,6 +1154,8 @@ begin
 
   if versao > -1 then
     result := result + '&version=' + IntToStr(versao);
+  if nomeRecurso = 'soft_deletes' then
+    result := result + '&table_name='+FFilaSincronizacaoCDS.fieldbyname('TABELA').asstring;
 end;
 
 function TDataIntegradorModuloWeb.getVersionFieldName: string;
