@@ -293,7 +293,7 @@ type
     procedure setNomeFK(const Value: string); virtual;
     function getHTTP: TIdHTTP;
     function GetFallbackWhere(aNode: IXMLDOMNode; var IdLocal: Integer): string; virtual;
-    function getIdLocalByIdRemoto(pTabela: String; pIdRemoto: Integer): Integer; virtual;
+    function getIdLocalByIdRemoto(pTabela, pNomePK: String; pIdRemoto: Integer): Integer; virtual;
     function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean; virtual;
     procedure UpdateHibridoDadosRemotos(pVersionId: Int64; pIdLocal, pIdRemoto: integer; pTabela: String; pOperacao: String; Transaction: TDBXTransaction = nil); virtual;
     procedure UpdateHibridoMetaDadosRemotos(aLastVersionId: Int64; Transaction: TDBXTransaction = nil);
@@ -860,7 +860,7 @@ function TDataIntegradorModuloWeb.CheckQryCommandTextForDuasVias(const aId: inte
 var
   vIdLocal: Integer;
 begin
-  vIdLocal := self.getIdLocalByIdRemoto(UpperCase(Integrador.NomeTabela), aId);
+  vIdLocal := self.getIdLocalByIdRemoto(UpperCase(Integrador.NomeTabela), Integrador.nomePKLocal, aId);
   Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal);
 end;
 
@@ -1516,7 +1516,7 @@ begin
   Result := Self.FIdAtual
 end;
 
-function TDataIntegradorModuloWeb.getIdLocalByIdRemoto(pTabela: String; pIdRemoto: Integer): Integer;
+function TDataIntegradorModuloWeb.getIdLocalByIdRemoto(pTabela, pNomePK: String; pIdRemoto: Integer): Integer;
 begin
   Result := 0;
 end;
