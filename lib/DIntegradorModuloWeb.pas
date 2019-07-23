@@ -545,6 +545,7 @@ procedure TDataIntegradorModuloWeb.UpdateHibridoDadosRemotos(pVersionId: Int64; 
 var
   qry: TSQLDataSet;
   _trans: TDBXTransaction;
+  Index: Integer;
 begin
   if UpperCase(pTabela) <> 'SOFTDELETE' then
   begin
@@ -562,6 +563,7 @@ begin
                                       'matching (TABELA, ID) ';
           qry.ParamByName('lastput').AsString := FormatDateTime('yyyy-mm-dd hh:nn:ss', now());
 
+          Index := FFilaSincronizacaoCDS.FieldByName('IDHIBRIDOFILASINCRONIZACAO').asInteger;
           //Marca o Registro para ser removido da FILA de sincronização (APENAS POST)
           FFilaSincronizacaoCDS.Filter := 'TABELA = ' + QuotedStr(UpperCase(pTabela)) + ' and ID = ' + IntToStr(pIdLocal) + ' AND OPERACAO <> ''D'' ';
           FFilaSincronizacaoCDS.Filtered := True;
@@ -576,6 +578,7 @@ begin
           finally
             FFilaSincronizacaoCDS.Filtered := False;
             FFilaSincronizacaoCDS.Filter := '';
+            FFilaSincronizacaoCDS.Locate('IDHIBRIDOFILASINCRONIZACAO', Index, []);
           end;
         end
         else

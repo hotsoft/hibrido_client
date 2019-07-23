@@ -606,7 +606,8 @@ begin
           sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where tentativas = 0 order by idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
-          if sincronizador.FilaClientDataSet.RecordCount > 0 then
+          //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.
+          if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
             self.ValidaPostRules(lTranslateTableNames);
 
           Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
@@ -619,7 +620,7 @@ begin
           sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by tentativas, idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
-          if sincronizador.FilaClientDataSet.RecordCount > 0 then
+          if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
             self.ValidaPostRules(lTranslateTableNames);
 
           Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas', 'Sync');
@@ -709,13 +710,17 @@ begin
           dmIntegrador.SetOnException(Self.FOnException);
 
           if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
+          begin
             self.LimpaFilaSincronizacao
+          end
           else
           begin
             self.RestauraFilaSincronizacao;
             sincronizador.FilaClientDataSet.Next;
           end;
-        end;
+        end
+        else
+          sincronizador.FilaClientDataSet.Next;
       finally
         FreeAndNil(dmIntegrador);
       end;
