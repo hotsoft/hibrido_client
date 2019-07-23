@@ -293,7 +293,7 @@ type
     procedure setNomeFK(const Value: string); virtual;
     function getHTTP: TIdHTTP;
     function GetFallbackWhere(aNode: IXMLDOMNode; var IdLocal: Integer): string; virtual;
-    function getIdLocalByIdRemoto(pTabela: String; pIdRemoto: Integer): Integer; virtual;
+    function getIdLocalByIdRemoto(pTabela, pNomePK: String; pIdRemoto: Integer): Integer; virtual;
     function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean; virtual;
     procedure UpdateHibridoDadosRemotos(pVersionId: Int64; pIdLocal, pIdRemoto: integer; pTabela: String; pOperacao: String; Transaction: TDBXTransaction = nil); virtual;
     procedure UpdateHibridoMetaDadosRemotos(aLastVersionId: Int64; Transaction: TDBXTransaction = nil);
@@ -545,6 +545,7 @@ procedure TDataIntegradorModuloWeb.UpdateHibridoDadosRemotos(pVersionId: Int64; 
 var
   qry: TSQLDataSet;
   _trans: TDBXTransaction;
+  Index: Integer;
 begin
   if UpperCase(pTabela) <> 'SOFTDELETE' then
   begin
@@ -562,6 +563,7 @@ begin
                                       'matching (TABELA, ID) ';
           qry.ParamByName('lastput').AsString := FormatDateTime('yyyy-mm-dd hh:nn:ss', now());
 
+          Index := FFilaSincronizacaoCDS.FieldByName('IDHIBRIDOFILASINCRONIZACAO').asInteger;
           //Marca o Registro para ser removido da FILA de sincronização (APENAS POST)
           FFilaSincronizacaoCDS.Filter := 'TABELA = ' + QuotedStr(UpperCase(pTabela)) + ' and ID = ' + IntToStr(pIdLocal) + ' AND OPERACAO <> ''D'' ';
           FFilaSincronizacaoCDS.Filtered := True;
@@ -576,6 +578,7 @@ begin
           finally
             FFilaSincronizacaoCDS.Filtered := False;
             FFilaSincronizacaoCDS.Filter := '';
+            FFilaSincronizacaoCDS.Locate('IDHIBRIDOFILASINCRONIZACAO', Index, []);
           end;
         end
         else
@@ -860,7 +863,7 @@ function TDataIntegradorModuloWeb.CheckQryCommandTextForDuasVias(const aId: inte
 var
   vIdLocal: Integer;
 begin
-  vIdLocal := self.getIdLocalByIdRemoto(UpperCase(Integrador.NomeTabela), aId);
+  vIdLocal := self.getIdLocalByIdRemoto(UpperCase(Integrador.NomeTabela), Integrador.nomePKLocal, aId);
   Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal);
 end;
 
@@ -1154,6 +1157,8 @@ begin
 
   if versao > -1 then
     result := result + '&version=' + IntToStr(versao);
+  if nomeRecurso = 'soft_deletes' then
+    result := result + '&table_name='+FFilaSincronizacaoCDS.fieldbyname('TABELA').asstring;
 end;
 
 function TDataIntegradorModuloWeb.getVersionFieldName: string;
@@ -1514,7 +1519,7 @@ begin
   Result := Self.FIdAtual
 end;
 
-function TDataIntegradorModuloWeb.getIdLocalByIdRemoto(pTabela: String; pIdRemoto: Integer): Integer;
+function TDataIntegradorModuloWeb.getIdLocalByIdRemoto(pTabela, pNomePK: String; pIdRemoto: Integer): Integer;
 begin
   Result := 0;
 end;

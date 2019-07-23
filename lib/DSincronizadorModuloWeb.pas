@@ -131,7 +131,7 @@ type
     procedure LimpaFilaSincronizacao;
     procedure RestauraFilaSincronizacao;
     procedure ValidaPostRules(pTranslatedTables: TJsonDictionary);
-    procedure EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal);
+    procedure EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal; Prioridade: Integer);
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
@@ -606,25 +606,26 @@ begin
           sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where tentativas = 0 order by idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
-          if sincronizador.FilaClientDataSet.RecordCount > 0 then
+          //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.
+          if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
             self.ValidaPostRules(lTranslateTableNames);
+
+          Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
+          UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila');
+          self.EnviarFila(http, lTranslateTableNames, dm, 0);
 
           //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
           //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
-          Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
-          UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila');
-          self.EnviarFila(http, lTranslateTableNames, dm);
-
           sincronizador.FilaClientDataSet.Close;
           sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by tentativas, idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
-          if sincronizador.FilaClientDataSet.RecordCount > 0 then
+          if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
             self.ValidaPostRules(lTranslateTableNames);
 
           Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas', 'Sync');
           UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas');
-          self.EnviarFila(http, lTranslateTableNames, dm);
+          self.EnviarFila(http, lTranslateTableNames, dm, 1);
 
         except
           on e: Exception do
@@ -649,15 +650,24 @@ begin
   end;
 end;
 
-procedure TRunnerThreadPuters.EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal);
+procedure TRunnerThreadPuters.EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal; Prioridade: Integer);
 var
   dmIntegrador: TDataIntegradorModuloWeb;
   i: Integer;
   JsonSetting: TJsonSetting;
+  Aux: Integer;
 begin
+  Aux := sincronizador.FilaClientDataSet.RecordCount;
   sincronizador.FilaClientDataSet.First;
   while not sincronizador.FilaClientDataSet.Eof do
   begin
+    Aux := Aux-1;
+    if (Prioridade = 0) and (sincronizador.FilaClientDataSetTENTATIVAS.AsInteger > 0)  then
+    begin
+      sincronizador.FilaClientDataSet.Next;
+      continue;
+    end;
+
     if sincronizador.FilaClientDataSetOPERACAO.AsString = 'D' then //Delete
     begin
       Self.log('Enviando delete da ' + sincronizador.FilaClientDataSetTABELA.AsString + ' ID: ' + sincronizador.FilaClientDataSetID.AsString, 'Sync');
@@ -679,7 +689,8 @@ begin
     if dmIntegrador <> nil then
     begin
       dmIntegrador.IdAtual := sincronizador.FilaClientDataSetID.AsInteger;
-      Self.log('Sincronizando, restam ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + 'registros da tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
+      if Aux mod 10 = 0 then
+        UtilsUnitAgendadorUn.WriteGreenLog('Restam ' + IntToStr(Aux) + ' registros');
       if not Self.ShouldContinue then
         Break;
 
@@ -699,13 +710,17 @@ begin
           dmIntegrador.SetOnException(Self.FOnException);
 
           if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
+          begin
             self.LimpaFilaSincronizacao
+          end
           else
           begin
             self.RestauraFilaSincronizacao;
             sincronizador.FilaClientDataSet.Next;
           end;
-        end;
+        end
+        else
+          sincronizador.FilaClientDataSet.Next;
       finally
         FreeAndNil(dmIntegrador);
       end;
