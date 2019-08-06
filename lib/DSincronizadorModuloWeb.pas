@@ -209,7 +209,7 @@ begin
 
     for dmw in pSB do
     begin
-      dimw := dmw.Create(nil, http);
+      dimw := dmw.CreateOwn(nil, http);
       try
         if MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive]) then
         begin
@@ -234,7 +234,7 @@ begin
     end;
     JVersions.AddPair('metadata', JsonObj);
 
-    dmIntegrador := self.posterDataModules[0].Create(nil, http); //Apenas para pegar a URL
+    dmIntegrador := self.posterDataModules[0].CreateOwn(nil, http); //Apenas para pegar a URL
     pStream := TStringStream.Create(JVersions.ToString, TEncoding.UTF8);
     try
       dmIntegrador.CustomParams := Self.FCustomParams;
@@ -294,7 +294,7 @@ begin
             Break;
 
           _Trans := dm.startTransaction;
-          dimw := dmw.Create(nil, http);
+          dimw := dmw.CreateOwn(nil, http);
 
           if (MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive])) and
              (MetaDadosClientDataSetBaixar.AsBoolean) then
@@ -310,8 +310,8 @@ begin
                 dimw.CustomParams := Self.FCustomParams;
                 dimw.DataLog := Self.FDataLog;
                 dimw.getDadosAtualizados(vRegistrosEncontrados);
-                if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
-                inc(i);
+                if Assigned(onStepGetters) then
+                  onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
                 dm.commit(_Trans);
 
                 if vRegistrosEncontrados = 0 then
@@ -557,7 +557,7 @@ begin
     begin
       if not Self.ShouldContinue then
         Break;
-      dmIntegrador := sincronizador.posterDataModules[i].Create(nil, nil);
+      dmIntegrador := sincronizador.posterDataModules[i].CreateOwn(nil, nil);
       try
         if (dmIntegrador.getNomeTabela <> EmptyStr) and (dmIntegrador.NomeSingular <> EmptyStr) then
           if not aTranslatedTableName.ContainsKey(dmIntegrador.getNomeTabela) then
@@ -671,14 +671,14 @@ begin
     if sincronizador.FilaClientDataSetOPERACAO.AsString = 'D' then //Delete
     begin
       Self.log('Enviando delete da ' + sincronizador.FilaClientDataSetTABELA.AsString + ' ID: ' + sincronizador.FilaClientDataSetID.AsString, 'Sync');
-      dmIntegrador := sincronizador.posterDataModules[0].Create(nil, http); //Aciona o SoftDelete
+      dmIntegrador := sincronizador.posterDataModules[0].CreateOwn(nil, http); //Aciona o SoftDelete
     end
     else
     begin
       //Começa no 1 pois a posição 0 é para o softdelete
       for I := 1 to sincronizador.posterDataModules.Count -1 do
       begin
-        dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+        dmIntegrador := sincronizador.posterDataModules[i].CreateOwn(nil, http);
         if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
           break
         else
@@ -738,15 +738,13 @@ var
   JsonSetting: TJsonSetting;
   dmIntegrador: TDataIntegradorModuloWeb;
   I: Integer;
-  http: TIdHTTP;
-  vRecNo: Integer;
 begin
   //Remove da fila todos os registros que não deve ser feito POST, isso é definido no Laboratory_Post_Rules
   try
     //Começa no 1 pois a posição 0 é para o softdelete
     for I := 1 to sincronizador.posterDataModules.Count -1 do
     begin
-      dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+      dmIntegrador := sincronizador.posterDataModules[i].CreateOwn(nil, nil);
       if dmIntegrador <> nil then
       begin
         try
