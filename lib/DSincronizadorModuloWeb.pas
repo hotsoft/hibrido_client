@@ -1,10 +1,12 @@
+
 unit DSincronizadorModuloWeb;
 
 interface
 
 uses
   ActiveX, SysUtils, Classes, ExtCtrls, DIntegradorModuloWeb, Dialogs, Windows, IDataPrincipalUnit,
-  ISincronizacaoNotifierUnit, IdHTTP,  System.Generics.Collections, Data.DBXJSON, Data.DBXCommon;
+  ISincronizacaoNotifierUnit, IdHTTP,  System.Generics.Collections, Data.DBXJSON, Data.DBXCommon,
+  Data.SqlExpr, Data.FMTBcd, Datasnap.DBClient, osClientDataset, Datasnap.Provider, Data.DB, VersionInfoUn;
 
 type
   TStepGettersEvent = procedure(name: string; step, total: integer) of object;
@@ -20,6 +22,32 @@ type
 
   TDataSincronizadorModuloWeb = class(TDataModule)
     sincronizaRetaguardaTimer: TTimer;
+    FilaDataSet: TSQLDataSet;
+    FilaProvider: TDataSetProvider;
+    FilaClientDataSet: TosClientDataset;
+    FilaDataSetIDHIBRIDOFILASINCRONIZACAO: TLargeintField;
+    FilaDataSetTABELA: TStringField;
+    FilaDataSetID: TIntegerField;
+    FilaDataSetTENTATIVAS: TIntegerField;
+    FilaDataSetULTIMATENTATIVA: TSQLTimeStampField;
+    FilaDataSetOPERACAO: TStringField;
+    FilaClientDataSetIDHIBRIDOFILASINCRONIZACAO: TLargeintField;
+    FilaClientDataSetTABELA: TStringField;
+    FilaClientDataSetID: TIntegerField;
+    FilaClientDataSetTENTATIVAS: TIntegerField;
+    FilaClientDataSetULTIMATENTATIVA: TSQLTimeStampField;
+    FilaClientDataSetOPERACAO: TStringField;
+    FilaClientDataSetSincronizado: TBooleanField;
+    MetaDadosDataSet: TSQLDataSet;
+    MetaDadosProvider: TDataSetProvider;
+    MetaDadosClientDataSet: TosClientDataset;
+    MetaDadosDataSetTABELA: TStringField;
+    MetaDadosDataSetVERSION_ID: TLargeintField;
+    MetaDadosClientDataSetTABELA: TStringField;
+    MetaDadosClientDataSetVERSION_ID: TLargeintField;
+    MetaDadosClientDataSetBaixar: TBooleanField;
+    MetaDadosClientDataSetnome_plural: TStringField;
+    MetaDadosClientDataSetVERSION_ID_SERVER: TLargeintField;
     procedure DataModuleCreate(Sender: TObject);
     procedure sincronizaRetaguardaTimerTimer(Sender: TObject);
   private
@@ -32,6 +60,7 @@ type
     function ShouldContinue: boolean;
     procedure setGetterBlocks(const Value: TGetterBlocks);
     procedure SetOnException(const Value: TOnExceptionProcedure);
+    procedure VerificarTabelasGET(pDM: IDataPrincipal; pSB: TServerToClientBlock; http: TidHTTP);
   protected
     Fnotifier: ISincronizacaoNotifier;
     FThreadControl: IThreadControl;
@@ -99,6 +128,10 @@ type
     procedure PopulateTranslatedTableNames(aTranslatedTableName: TJsonDictionary);
     function getJsonFromServer: TJsonArray;
     function getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
+    procedure LimpaFilaSincronizacao;
+    procedure RestauraFilaSincronizacao;
+    procedure ValidaPostRules(pTranslatedTables: TJsonDictionary);
+    procedure EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal; Prioridade: Integer);
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
@@ -110,11 +143,10 @@ type
 
 var
   DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb;
-  salvandoRetaguarda, gravandoVenda: boolean;
 
 implementation
 
-uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils;
+uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils, Zip, Shellapi, UtilsUnitAgendadorUn;
 
 {$R *.dfm}
 
@@ -150,6 +182,87 @@ begin
   Result := Self.FIDataPrincipal;
 end;
 
+procedure TDataSincronizadorModuloWeb.VerificarTabelasGET(pDM: IDataPrincipal; pSB: TServerToClientBlock; http: TidHTTP);
+var
+  dmw:  TDataIntegradorModuloWebClass;
+  dimw: TDataIntegradorModuloWeb;
+  JVersions, JsonObj: TJsonObject;
+  Retorno: string;
+  dmIntegrador: TDataIntegradorModuloWeb;
+  pStream: TStringStream;
+  I: Integer;
+begin
+  JVersions := TJSONObject.Create;
+  JVersions.Owned := True;
+  JsonObj := TJSONObject.Create;
+  try
+    MetaDadosDataSet.SQLConnection := pDM.getQuery.SQLConnection;
+    MetaDadosClientDataSet.Open;
+    MetaDadosClientDataSet.First;
+    while not MetaDadosClientDataSet.Eof do
+    begin
+      MetaDadosClientDataSet.Edit;
+      MetaDadosClientDataSetBaixar.AsBoolean := False;
+      MetaDadosClientDataSet.Post;
+      MetaDadosClientDataSet.Next;
+    end;
+
+    for dmw in pSB do
+    begin
+      dimw := dmw.Create(nil, http);
+      try
+        if MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive]) then
+        begin
+          JsonObj.AddPair(dimw.nomePlural, MetaDadosClientDataSetVERSION_ID.AsString);
+          MetaDadosClientDataSet.Edit;
+          MetaDadosClientDataSetnome_plural.AsString := dimw.nomePlural;
+          MetaDadosClientDataSet.Post;
+        end
+        else
+        begin
+          MetaDadosClientDataSet.append;
+          MetaDadosClientDataSetTABELA.AsString := UpperCase(dimw.nomeTabela);
+          MetaDadosClientDataSetVERSION_ID.AsInteger := 0;
+          MetaDadosClientDataSetBaixar.AsBoolean := False;
+          MetaDadosClientDataSetnome_plural.AsString := dimw.nomePlural;
+          MetaDadosClientDataSet.Post;
+          MetaDadosClientDataSet.ApplyUpdates(0);
+        end;
+      finally
+        dimw.Free;
+      end;
+    end;
+    JVersions.AddPair('metadata', JsonObj);
+
+    dmIntegrador := self.posterDataModules[0].Create(nil, http); //Apenas para pegar a URL
+    pStream := TStringStream.Create(JVersions.ToString, TEncoding.UTF8);
+    try
+      dmIntegrador.CustomParams := Self.FCustomParams;
+      http.Request.ContentType := 'application/json';
+      http.Request.ContentEncoding := 'utf-8';
+      Retorno := http.POST(dmIntegrador.getURL + 'metadata?' + dmIntegrador.getDefaultParams, pStream);
+      http.Request.Clear;
+    finally
+      FreeAndNil(dmIntegrador);
+      FreeAndNil(pStream);
+    end;
+
+    JsonObj := TJSONObject.ParseJSONValue(TEncoding.ASCII.GetBytes(Retorno),0) as TJSONObject;
+    JsonObj := JsonObj.Get(0).JsonValue as TJsonObject;
+    for I:= 0 to JsonObj.Size - 1 do
+    begin
+      MetaDadosClientDataSet.Locate('nome_plural', JsonObj.Get(I).JsonString.Value, [loCaseInsensitive]);
+      MetaDadosClientDataSet.Edit;
+      MetaDadosClientDataSetBaixar.AsBoolean := True;
+      MetaDadosClientDataSetVERSION_ID_SERVER.AsLargeInt := StrToInt64(JsonObj.Get(I).JsonValue.Value);
+      MetaDadosClientDataSet.Post
+    end;
+  finally
+    JVersions.Free;
+    JsonObj.Free;
+  end;
+end;
+
 procedure TDataSincronizadorModuloWeb.getUpdatedData;
 var
   i: integer;
@@ -160,6 +273,7 @@ var
   sb: TServerToClientBlock;
   dmw:  TDataIntegradorModuloWebClass;
   _Trans: TDBXTransaction;
+  vRegistrosEncontrados: Integer;
 begin
   CoInitializeEx(nil, 0);
   try
@@ -170,6 +284,10 @@ begin
       begin
         if not Self.ShouldContinue then
           Break;
+
+        //Carrega o Max Version_ID de cada tabela em um JSON que será enviado ao servidor, para que o servidor retorne quais tabelas devem ser atualizadas
+        self.VerificarTabelasGET(dm, sb, http);
+
         for dmw in sb do
         begin
           if not Self.ShouldContinue then
@@ -177,35 +295,49 @@ begin
 
           _Trans := dm.startTransaction;
           dimw := dmw.Create(nil, http);
-          try
+
+          if (MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive])) and
+             (MetaDadosClientDataSetBaixar.AsBoolean) then
+          begin
             try
-              i := 1;
-              dimwName := dimw.getHumanReadableName;
-              dimw.notifier := Self.Fnotifier;
-              dimw.dmPrincipal := dm;
-              dimw.threadcontrol := Self.FThreadControl;
-              dimw.OnException := Self.OnException;
-              dimw.CustomParams := Self.FCustomParams;
-              dimw.DataLog := Self.FDataLog;
-              dimw.getDadosAtualizados;
-              if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
-              dm.commit(_Trans);
-            except
-              on E: Exception do
-              begin
-                dm.rollback(_Trans);
-                if assigned(Self.FOnException) then
-                  Self.FOnException(haGet, dimw, E.ClassName, E.Message, 0);
-                if assigned (self.FDataLog) then
+              try
+                i := 1;
+                dimwName := dimw.getHumanReadableName;
+                dimw.notifier := Self.Fnotifier;
+                dimw.dmPrincipal := dm;
+                dimw.threadcontrol := Self.FThreadControl;
+                dimw.OnException := Self.OnException;
+                dimw.CustomParams := Self.FCustomParams;
+                dimw.DataLog := Self.FDataLog;
+                dimw.getDadosAtualizados(vRegistrosEncontrados);
+                if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
+                inc(i);
+                dm.commit(_Trans);
+
+                if vRegistrosEncontrados = 0 then
                 begin
-                  SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
-                  Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
-                  SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+                  MetaDadosClientDataSet.Edit;
+                  MetaDadosClientDataSetVERSION_ID.AsLargeInt := MetaDadosClientDataSetVERSION_ID_SERVER.AsLargeInt;
+                  MetaDadosClientDataSet.Post;
+                  MetaDadosClientDataSet.ApplyUpdates(0);
+                end;
+              except
+                on E: Exception do
+                begin
+                  dm.rollback(_Trans);
+                  if assigned(Self.FOnException) then
+                    Self.FOnException(haGet, dimw, E.ClassName, E.Message, 0);
+                  if assigned (self.FDataLog) then
+                  begin
+                    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED or FOREGROUND_INTENSITY);
+                    Self.FDataLog.log(Format('Erro em GetUpdateData para a classe "%s":'+#13#10+'%s', [dimwName,e.Message]));
+                    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 7);
+                  end;
                 end;
               end;
+            finally
+              dimw.free;
             end;
-          finally
-            dimw.free;
           end;
         end;
       end;
@@ -222,8 +354,6 @@ procedure TDataSincronizadorModuloWeb.DataModuleCreate(Sender: TObject);
 begin
   sincronizaRetaguardaTimer.Enabled := false;
   atualizando := false;
-  salvandoRetaguarda := false;
-  gravandoVenda := false;
   Self.FposterDataModules := TPosterDataModules.Create;
   Self.FgetterBlocks := TGetterBlocks.Create;
 end;
@@ -406,7 +536,9 @@ begin
             Result.PostStatement := TIdDecoderMIME.DecodeString(JsonPair.JsonValue.Value, IndyTextEncoding_UTF8)
           end;
           if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'post') then
-            Result.PostToServer := StrToBoolDef(JsonPair.JsonString.Value, True)
+          begin
+            Result.PostToServer := StrToBoolDef(UpperCase(JsonPair.JsonValue.ToString), True)
+          end;
         end;
       end;
     end;
@@ -450,23 +582,18 @@ end;
 
 procedure TRunnerThreadPuters.Execute;
 var
-  i: integer;
   dm: IDataPrincipal;
-  dmIntegrador: TDataIntegradorModuloWeb;
   http: TIdHTTP;
   lTranslateTableNames: TJsonDictionary;
-  JsonSetting: TJsonSetting;
 begin
   inherited;
-  if salvandoRetaguarda or gravandoVenda then exit;
   if Self.Fnotifier <> nil then
     Synchronize(setMainFormPuttingTrue);
-  salvandoRetaguarda := true;
+
   try
     CoInitializeEx(nil, 0);
     try
       http := nil;
-      if gravandoVenda then exit;
       dm := sincronizador.getNewDataPrincipal;
       try
         try
@@ -474,35 +601,37 @@ begin
           lTranslateTableNames := TJsonDictionary.Create;
           Self.PopulateTranslatedTableNames(lTranslateTableNames);
 
-          for i := 0 to sincronizador.posterDataModules.Count - 1 do
-          begin
-            if not Self.ShouldContinue then
-              Break;
+          //Fila com mais prioridade, todos os registros que nunca foram tentados ser sincronizados antes
+          sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
+          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where tentativas = 0 order by idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.Open;
 
-            dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
-            try
-              JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
-              if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or
-                ((JsonSetting = nil) and (not Self.FRestrictPosters)) then
-              begin
-                if (JsonSetting <> nil) then
-                  dmIntegrador.SetStatementForPost(JsonSetting.PostStatement);
-                dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
-                dmIntegrador.notifier := FNotifier;
-                dmIntegrador.threadControl := Self.FthreadControl;
-                dmIntegrador.CustomParams := Self.FCustomParams;
-                dmIntegrador.dmPrincipal := dm;
-                dmIntegrador.DataLog := Self.FDataLog;
-                dmIntegrador.SetOnException(Self.FOnException);
-                dmIntegrador.postRecordsToRemote(http);
-              end;
-            finally
-              FreeAndNil(dmIntegrador);
-            end;
-          end;
+          //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.
+          if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
+            self.ValidaPostRules(lTranslateTableNames);
+
+          Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila', 'Sync');
+          UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila');
+          self.EnviarFila(http, lTranslateTableNames, dm, 0);
+
+          //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
+          //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
+          sincronizador.FilaClientDataSet.Close;
+          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by tentativas, idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.Open;
+
+          if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
+            self.ValidaPostRules(lTranslateTableNames);
+
+          Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas', 'Sync');
+          UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas');
+          self.EnviarFila(http, lTranslateTableNames, dm, 1);
+
         except
           on e: Exception do
           begin
+            self.RestauraFilaSincronizacao;
+            sincronizador.FilaClientDataSet.Next;
             Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
           end;
         end;
@@ -516,10 +645,195 @@ begin
       CoUninitialize;
     end;
   finally
-    salvandoRetaguarda := false;
     if Self.Fnotifier <> nil then
       Synchronize(finishPuttingProcess);
   end;
+end;
+
+procedure TRunnerThreadPuters.EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal; Prioridade: Integer);
+var
+  dmIntegrador: TDataIntegradorModuloWeb;
+  i: Integer;
+  JsonSetting: TJsonSetting;
+  Aux: Integer;
+begin
+  Aux := sincronizador.FilaClientDataSet.RecordCount;
+  sincronizador.FilaClientDataSet.First;
+  while not sincronizador.FilaClientDataSet.Eof do
+  begin
+    Aux := Aux-1;
+    if (Prioridade = 0) and (sincronizador.FilaClientDataSetTENTATIVAS.AsInteger > 0)  then
+    begin
+      sincronizador.FilaClientDataSet.Next;
+      continue;
+    end;
+
+    if sincronizador.FilaClientDataSetOPERACAO.AsString = 'D' then //Delete
+    begin
+      Self.log('Enviando delete da ' + sincronizador.FilaClientDataSetTABELA.AsString + ' ID: ' + sincronizador.FilaClientDataSetID.AsString, 'Sync');
+      dmIntegrador := sincronizador.posterDataModules[0].Create(nil, http); //Aciona o SoftDelete
+    end
+    else
+    begin
+      //Começa no 1 pois a posição 0 é para o softdelete
+      for I := 1 to sincronizador.posterDataModules.Count -1 do
+      begin
+        dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+        if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
+          break
+        else
+          FreeAndNil(dmIntegrador);
+      end;
+    end;
+
+    if dmIntegrador <> nil then
+    begin
+      dmIntegrador.IdAtual := sincronizador.FilaClientDataSetID.AsInteger;
+      if Aux mod 10 = 0 then
+        UtilsUnitAgendadorUn.WriteGreenLog('Restam ' + IntToStr(Aux) + ' registros');
+      if not Self.ShouldContinue then
+        Break;
+
+      try
+        JsonSetting := lTranslateTableNames.Items[dmIntegrador.getNomeTabela];
+        if ((JsonSetting <> nil) and (JsonSetting.PostToServer)) or
+          ((JsonSetting = nil) and (not Self.FRestrictPosters)) then
+        begin
+          if (JsonSetting <> nil) then
+            dmIntegrador.SetStatementForPost(JsonSetting.PostStatement);
+          dmIntegrador.SetTranslateTableNames(lTranslateTableNames);
+          dmIntegrador.notifier := FNotifier;
+          dmIntegrador.threadControl := Self.FthreadControl;
+          dmIntegrador.CustomParams := Self.FCustomParams;
+          dmIntegrador.dmPrincipal := dm;
+          dmIntegrador.DataLog := Self.FDataLog;
+          dmIntegrador.SetOnException(Self.FOnException);
+
+          if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
+          begin
+            self.LimpaFilaSincronizacao
+          end
+          else
+          begin
+            self.RestauraFilaSincronizacao;
+            sincronizador.FilaClientDataSet.Next;
+          end;
+        end
+        else
+          sincronizador.FilaClientDataSet.Next;
+      finally
+        FreeAndNil(dmIntegrador);
+      end;
+    end
+    else
+    begin
+      Self.log('Não foi encontrado dataModule registrado para a tabela ' + sincronizador.FilaClientDataSetTABELA.AsString, 'Sync');
+      sincronizador.FilaClientDataSet.Next;
+    end;
+  end
+end;
+
+procedure TRunnerThreadPuters.ValidaPostRules(pTranslatedTables: TJsonDictionary);
+var
+  JsonSetting: TJsonSetting;
+  dmIntegrador: TDataIntegradorModuloWeb;
+  I: Integer;
+  http: TIdHTTP;
+  vRecNo: Integer;
+begin
+  //Remove da fila todos os registros que não deve ser feito POST, isso é definido no Laboratory_Post_Rules
+  try
+    //Começa no 1 pois a posição 0 é para o softdelete
+    for I := 1 to sincronizador.posterDataModules.Count -1 do
+    begin
+      dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+      if dmIntegrador <> nil then
+      begin
+        try
+          JsonSetting := pTranslatedTables.Items[dmIntegrador.getNomeTabela];
+          if ((JsonSetting <> nil) and (not JsonSetting.PostToServer)) then
+          begin
+            sincronizador.FilaClientDataSet.Filter := 'TABELA = ' + QuotedStr(UpperCase(dmIntegrador.getNomeTabela));
+            sincronizador.FilaClientDataSet.Filtered := True;
+            try
+              if sincronizador.FilaClientDataSet.RecordCount > 0 then
+              begin
+                Self.FDataLog.log(Format('Removendo da fila os registros da tabela %s, Quantidade: %s', [sincronizador.FilaClientDataSetTABELA.AsString, IntToStr(sincronizador.FilaClientDataSet.RecordCount)]));
+                while not sincronizador.FilaClientDataSet.Eof do
+                  sincronizador.FilaClientDataSet.Delete;
+
+                sincronizador.FilaClientDataSet.ApplyUpdates(0);
+              end;
+            finally
+              sincronizador.FilaClientDataSet.Filtered := False;
+              sincronizador.FilaClientDataSet.Filter := '';
+            end;
+          end;
+        finally
+          FreeAndNil(dmIntegrador);
+        end;
+      end;
+    end;
+  finally
+    sincronizador.FilaClientDataSet.Filter := '';
+    sincronizador.FilaClientDataSet.Filtered := False;
+  end;
+end;
+
+procedure TRunnerThreadPuters.RestauraFilaSincronizacao;
+var
+  BookMark: TBookMark;
+begin
+  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
+  sincronizador.FilaClientDataSet.Edit;
+  sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
+  sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
+  sincronizador.FilaClientDataSet.Post;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+
+  try
+    sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';
+    sincronizador.FilaClientDataSet.Filtered := True;
+    sincronizador.FilaClientDataSet.First;
+    while not sincronizador.FilaClientDataSet.Eof do
+    begin
+      sincronizador.FilaClientDataSet.Edit;
+      sincronizador.FilaClientDataSetSincronizado.Clear;
+      sincronizador.FilaClientDataSet.Post;
+    end;
+  finally
+    sincronizador.FilaClientDataSet.Filter := '';
+    sincronizador.FilaClientDataSet.Filtered := False;
+    if sincronizador.FilaClientDataSet.BookmarkValid(BookMark) then
+      sincronizador.FilaClientDataSet.GotoBookmark(BookMark);
+    sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
+  end;
+end;
+
+procedure TRunnerThreadPuters.LimpaFilaSincronizacao;
+var
+  BookMark: TBookMark;
+begin
+  sincronizador.FilaClientDataSet.Delete;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
+  sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE ';
+  sincronizador.FilaClientDataSet.Filtered := True;
+  try
+    sincronizador.FilaClientDataSet.First;
+    while not sincronizador.FilaClientDataSet.Eof do
+      sincronizador.FilaClientDataSet.Delete;
+  finally
+    sincronizador.FilaClientDataSet.Filtered := False;
+    sincronizador.FilaClientDataSet.Filter := '';
+
+    if (sincronizador.FilaClientDataSet.RecordCount > 0) and (sincronizador.FilaClientDataSet.BookmarkValid(BookMark)) then
+      sincronizador.FilaClientDataSet.GotoBookmark(BookMark);
+
+    sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
+  end;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+//  sincronizador.FilaClientDataSet.First;
 end;
 
 { TCustomRunnerThread }
