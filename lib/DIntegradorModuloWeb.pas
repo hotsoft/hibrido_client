@@ -204,11 +204,11 @@ type
     paramsType: TParamsType;
     FOnException: TOnExceptionProcedure;
     FLastStream: TStringStream;
-    FIdRemotoAtual: Integer;
-    FVersionIdAtual: Integer;
+    FVersionIdAtual: Int64;
     FIdRemotoEncontrado : Boolean;
     FFilaSincronizacaoCDS: TClientDataSet;
     FRecursividadeAtiva: Boolean;
+    FIdRemotoAtual: Integer;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
@@ -259,7 +259,7 @@ type
     function getUpdateStatement(node: IXMLDomNode; const id: integer): String; virtual;
     function getInsertStatement(node: IXMLDomNode): String; virtual;
     function getNewId(node: IXMLDomNode): Integer; virtual;
-    function Post(ds: TDataSet; http: TidHTTP; const url: string; pTrans: TDBXTransaction): string; virtual;
+    function Post(ds: TDataSet; http: TidHTTP; url: string; pTrans: TDBXTransaction): string; virtual;
     procedure addDetailsToJsonList(aDetailList: TDetailList; aDs: TDataSet); virtual;
     procedure SelectDetails(aDetailList: TDetailList; aValorPK: integer; aTabelaDetalhe: TTabelaDetalhe); virtual;
     function getJsonObject(aDs: TDataSet; aTranslations: TTranslationSet; aDict: TStringDictionary; aNestedAttribute: string = '') : TJsonObject; virtual;
@@ -278,8 +278,8 @@ type
     function getNomeSingular: string; virtual;
     procedure SetNomeSingular(const Value: string); virtual;
     function GetNomePlural: string; virtual;
+    function GetVersionIdAtual: Int64; virtual;
     function GetIdRemotoAtual: Integer; virtual;
-    function GetVersionIdAtual: Integer; virtual;
     procedure setNomePlural(const Value: string); virtual;
     function GetNomePKLocal: string; virtual;
     function GetIdAtual: Integer; virtual;
@@ -331,7 +331,7 @@ type
     property nomePKLocal: string read GetNomePKLocal write setNomePKLocal;
     property IdRemotoAtual: Integer read GetIdRemotoAtual;
     property IdAtual: Integer read GetIdAtual write setIdAtual;
-    property VersionIdAtual: Integer read GetVersionIdAtual;
+    property VersionIdAtual: Int64 read GetVersionIdAtual;
     property RecursividadeAtiva: Boolean read FRecursividadeAtiva write SetRecursividadeAtiva;
     function getFieldDictionaryList: TFieldDictionaryList;
     function getTabelasDetalhe: TTabelaDetalheList;
@@ -771,8 +771,6 @@ var
   Field: TFieldDictionary;
   lFormatSettings: TFormatSettings;
 begin
-  FIdRemotoAtual := StrToInt(node.selectSingleNode('id').text);
-  FVersionIdAtual := StrToInt(node.selectSingleNode('version-id').text);
   //Preenche os Parametros
   for i := 0 to node.childNodes.length - 1 do
   begin
@@ -864,7 +862,9 @@ var
   vIdLocal: Integer;
 begin
   vIdLocal := self.getIdLocalByIdRemoto(UpperCase(Integrador.NomeTabela), Integrador.nomePKLocal, aId);
-  Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal);
+  Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal) +
+  ' and exists(select 1 from HIBRIDODADOSREMOTOS ' + ' where tabela = ' + QuotedStr(UpperCase(Integrador.nomeTabela)) + ' and id = ' + IntToStr(vIdLocal) +
+  ' and version_id <> ' + IntToStr(FVersionIdAtual) + ')';
 end;
 
 function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer) : Boolean;
@@ -897,6 +897,8 @@ begin
   _WhereInUpdate := EmptyStr;
   qry := dmPrincipal.getQuery;
   ChildrenNodes := TXMLNodeDictionary.Create;
+  FVersionIdAtual := StrToInt64(node.selectSingleNode('version-id').text);
+  FIdRemotoAtual := id;
   try
     if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
@@ -916,6 +918,7 @@ begin
         _WhereInUpdate := CheckQryCommandTextForDuasVias(Id, Integrador);
 
       qry.CommandText := qry.CommandText + _WhereInUpdate;
+
     end
     else
     begin
@@ -1529,7 +1532,7 @@ begin
   Result := Self.FIdRemotoAtual
 end;
 
-function TDataIntegradorModuloWeb.GetVersionIdAtual: Integer;
+function TDataIntegradorModuloWeb.GetVersionIdAtual: Int64;
 begin
   Result := Self.FVersionIdAtual
 end;
@@ -1585,7 +1588,7 @@ begin
   Result := True;
 end;
 
-function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; const url: string; pTrans: TDBXTransaction): string;
+function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; url: string; pTrans: TDBXTransaction): string;
 var
   params: TStringList;
   pStream: TStringStream;
@@ -1602,7 +1605,14 @@ begin
     Self.addDetailsToJsonList(DetailList, ds);
     Self.addMasterTableToJson(DetailList, ds, pStream);
 
-    http.Post(url, pStream, ResponseContent);
+    if ds.FieldByName('IDREMOTO').AsInteger > 0 then
+    begin
+      url := StringReplace(url, '?', '/' + ds.FieldByName('IDREMOTO').AsString + '?', []);
+      http.Put(url, pStream, ResponseContent)
+    end
+    else
+      http.Post(url, pStream, ResponseContent);
+
     result := ResponseContent.DataString;
     Self.FLastStream.LoadFromStream(pStream);
     Content := Self.getXMLContentAsXMLDom(result);
