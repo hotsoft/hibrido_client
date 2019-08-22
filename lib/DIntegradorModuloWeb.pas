@@ -206,6 +206,7 @@ type
     FVersionIdAtual: Int64;
     FIdRemotoEncontrado : Boolean;
     FFilaSincronizacaoCDS: TClientDataSet;
+    FBlackListFieldCDS: TClientDataSet;
     FRecursividadeAtiva: Boolean;
     FIdRemotoAtual: Integer;
     function getVersionFieldName: string; virtual;
@@ -295,6 +296,7 @@ type
     function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean; virtual;
     procedure UpdateHibridoDadosRemotos(pVersionId: Int64; pIdLocal, pIdRemoto: integer; pTabela: String; pOperacao: String; Transaction: TDBXTransaction = nil); virtual;
     procedure UpdateHibridoMetaDadosRemotos(aLastVersionId: Int64; Transaction: TDBXTransaction = nil);
+    function ValidaBlackListField(pTabela, pCampo: String; pHTTPAction: THttpAction; pIdRemoto: Integer = 0): Boolean;
     const
       cNullToServer = '§NULL§';
   public
@@ -347,6 +349,7 @@ type
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
     function getURL: string; virtual;
     function getDefaultParams: string; virtual;
+    procedure setBlackListFieldCDS(pBlackListFieldCDS : TClientDataSet);
   end;
 
 
@@ -1245,6 +1248,11 @@ begin
   end;
 end;
 
+procedure TDataIntegradorModuloWeb.setBlackListFieldCDS(pBlackListFieldCDS: TClientDataSet);
+begin
+  FBlackListFieldCDS := pBlackListFieldCDS;
+end;
+
 procedure TDataIntegradorModuloWeb.SelectDetails(aDetailList: TDetailList; aValorPK: integer; aTabelaDetalhe: TTabelaDetalhe);
 var
   jsonArrayDetails: TJSONArrayContainer;
@@ -1404,40 +1412,53 @@ var
   i: integer;
   nomeCampo, nome, valor, fieldValue: string;
   StringUTF8: UTF8String;
+  vIdRemotoRegistroLocal: Integer;
 begin
   Result := TJsonObject.Create;
   Result.Owned := False; // Manter como False
   FIdRemotoEncontrado := True;
+  for i := 0 to  aTranslations.size-1 do
+  begin
+    if aTranslations.get(i).pdv = 'idremoto' then
+    begin
+      vIdRemotoRegistroLocal := StrToIntDef(aDict.Items[UpperCase(aTranslations.get(i).pdv)],0);
+      break;
+    end;
+  end;
+
   for i := 0 to aTranslations.size-1 do
   begin
     nomeCampo := aTranslations.get(i).pdv;
-    if aDict.ContainsKey(UpperCase(nomeCampo)) then
+    if ValidaBlackListField(getNomeTabela, nomeCampo, haPOST, vIdRemotoRegistroLocal) then
     begin
-      nome := aTranslations.get(i).server;
-      fieldValue := aDict.Items[UpperCase(aTranslations.get(i).pdv)];
-
-      valor := translateValueToServer(aTranslations.get(i), aTranslations.get(i).pdv,
-          aDs.fieldByName(aTranslations.get(i).pdv), aNestedAttribute, aTranslations.get(i).fkName, fieldValue);
-      if not JsonObjectHasPair(nome, Result) then
+      if aDict.ContainsKey(UpperCase(nomeCampo)) then
       begin
-        StringUTF8 := UTF8Encode(Self.EscapeValueToServer(valor));
-        if Self.encodeJsonValues then
+        nome := aTranslations.get(i).server;
+        fieldValue := aDict.Items[UpperCase(aTranslations.get(i).pdv)];
+
+        valor := translateValueToServer(aTranslations.get(i), aTranslations.get(i).pdv,
+            aDs.fieldByName(aTranslations.get(i).pdv), aNestedAttribute, aTranslations.get(i).fkName, fieldValue);
+        if not JsonObjectHasPair(nome, Result) then
         begin
-          if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
-            Result.AddPair(nome, valor)
-          else if StringUTF8 = '' then
-            Result.AddPair(nome, TIdEncoderMIME.EncodeString(cNullToServer, IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
+          StringUTF8 := UTF8Encode(Self.EscapeValueToServer(valor));
+          if Self.encodeJsonValues then
+          begin
+            if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
+              Result.AddPair(nome, valor)
+            else if StringUTF8 = '' then
+              Result.AddPair(nome, TIdEncoderMIME.EncodeString(cNullToServer, IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
+            else
+              Result.AddPair(nome, TIdEncoderMIME.EncodeString(UTF8ToString(StringUTF8), IndyTextEncoding_UTF8))
+          end
           else
-            Result.AddPair(nome, TIdEncoderMIME.EncodeString(UTF8ToString(StringUTF8), IndyTextEncoding_UTF8))
-        end
-        else
-          Result.AddPair(nome, valor);
+            Result.AddPair(nome, valor);
+        end;
       end;
-    end;
-    if UpperCase(NomeCampo) = UpperCase(GetNomePKLocal) then
-    begin
-      //Adiciona o Version_ID ao JSON
-      setVersionIdToJSON(Result, getNomeTabela, valor);
+      if UpperCase(NomeCampo) = UpperCase(GetNomePKLocal) then
+      begin
+        //Adiciona o Version_ID ao JSON
+        setVersionIdToJSON(Result, getNomeTabela, valor);
+      end;
     end;
   end;
 end;
@@ -1578,7 +1599,7 @@ begin
 
     if ds.FieldByName('IDREMOTO').AsInteger > 0 then
     begin
-      url := StringReplace(url, '?', '/' + ds.FieldByName('IDREMOTO').AsString + '?', []);
+      url := StringReplace(url, '.json?', '/' + ds.FieldByName('IDREMOTO').AsString + '.json?', []);
       http.Put(url, pStream, ResponseContent)
     end
     else
@@ -2394,6 +2415,24 @@ begin
   else
     Result := Result + '.xml' + '?';
   Result := Result + Self.getDefaultParams;
+end;
+
+function TDataIntegradorModuloWeb.ValidaBlackListField(pTabela, pCampo: String; pHTTPAction: THttpAction; pIdRemoto: Integer = 0) : Boolean;
+begin
+  if self.FBlackListFieldCDS.Locate('table_client_name;field_client_name', VarArrayOf([pTabela, pCampo]), [loCaseInsensitive]) then
+  begin
+    if pHTTPAction = haPost then
+    begin
+      if pIdRemoto > 0 then
+        Result := self.FBlackListFieldCDS.fieldbyname('can_post').AsString = 'S'
+      else
+        Result := True;
+    end
+    else
+      Result := self.FBlackListFieldCDS.fieldbyname('can_get').AsString = 'S'
+  end
+  else
+    Result := True;
 end;
 
 { TTabelaDetalhe }

@@ -48,6 +48,15 @@ type
     MetaDadosClientDataSetBaixar: TBooleanField;
     MetaDadosClientDataSetnome_plural: TStringField;
     MetaDadosClientDataSetVERSION_ID_SERVER: TLargeintField;
+    BlackListFieldClientDataSet: TClientDataSet;
+    BlackListFieldClientDataSetid: TIntegerField;
+    BlackListFieldClientDataSetmatrix: TStringField;
+    BlackListFieldClientDataSetcan_get: TStringField;
+    BlackListFieldClientDataSetcan_post: TStringField;
+    BlackListFieldClientDataSettable_client_name: TStringField;
+    BlackListFieldClientDataSettable_server_name: TStringField;
+    BlackListFieldClientDataSetfield_client_name: TStringField;
+    BlackListFieldClientDataSetfield_server_name: TStringField;
     procedure DataModuleCreate(Sender: TObject);
     procedure sincronizaRetaguardaTimerTimer(Sender: TObject);
   private
@@ -91,6 +100,7 @@ type
   end;
 
   TCustomRunnerThread = class(TThread)
+
   private
     procedure Setnotifier(const Value: ISincronizacaoNotifier);
     procedure Setsincronizador(const Value: TDataSincronizadorModuloWeb);
@@ -132,6 +142,8 @@ type
     procedure RestauraFilaSincronizacao;
     procedure ValidaPostRules(pTranslatedTables: TJsonDictionary);
     procedure EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal; Prioridade: Integer);
+    procedure PopulateBlackListFieldClientDataSet;
+    function getJsonBlackListFieldFromServer: TJsonArray;
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
@@ -274,8 +286,10 @@ var
   dmw:  TDataIntegradorModuloWebClass;
   _Trans: TDBXTransaction;
   vRegistrosEncontrados: Integer;
+  vSincronizador: TDataSincronizadorModuloWeb;
 begin
   CoInitializeEx(nil, 0);
+  vSincronizador := TDataSincronizadorModuloWeb.Create(self);
   try
     dm := getNewDataPrincipal;
     http := getHTTPInstance;
@@ -309,6 +323,7 @@ begin
                 dimw.OnException := Self.OnException;
                 dimw.CustomParams := Self.FCustomParams;
                 dimw.DataLog := Self.FDataLog;
+                dimw.setBlackListFieldCDS(BlackListFieldClientDataSet);
                 dimw.getDadosAtualizados(vRegistrosEncontrados);
                 if Assigned(onStepGetters) then
                   onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
@@ -507,6 +522,20 @@ begin
     Result := TJsonArray.Create;
 end;
 
+function TRunnerThreadPuters.getJsonBlackListFieldFromServer: TJsonArray;
+var
+  JsonFromServer: String;
+begin
+  JsonFromServer := EmptyStr;
+  if (Self.FCustomParams <> nil) then
+    JsonFromServer := Self.FCustomParams.getJsonBlackListFieldFromServer;
+
+  if JsonFromServer <> EmptyStr then
+    Result :=  TJsonObject.ParseJSONValue(TEncoding.ASCII.getBytes(JsonFromServer),0) as TJsonArray
+  else
+    Result := TJsonArray.Create;
+end;
+
 function TRunnerThreadPuters.getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
 var
   i: integer;
@@ -545,12 +574,83 @@ begin
   end;
 end;
 
+procedure TRunnerThreadPuters.PopulateBlackListFieldClientDataSet;
+var
+  i: integer;
+  dmIntegrador: TDataIntegradorModuloWeb;
+  JsonServer: TJsonArray;
+  JsonObject: TJsonValue;
+  JsonPair: TJsonPair;
+begin
+  //Carrega o Black List Field
+  JsonServer := Self.getJsonBlackListFieldFromServer;
+  sincronizador.BlackListFieldClientDataSet.CreateDataSet;
+
+  if not sincronizador.BlackListFieldClientDataSet.Active then
+    sincronizador.BlackListFieldClientDataSet.Open;
+
+  for JsonObject in JsonServer do
+  begin
+    sincronizador.BlackListFieldClientDataSet.Append;
+    if (JsonObject is TJsonObject) then
+    begin
+      for i := 0 to TJsonObject(JsonObject).size - 1 do
+      begin
+        JsonPair := TJsonObject(JsonObject).Get(i);
+        if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'id') then
+        begin
+          sincronizador.BlackListFieldClientDataSetid.AsInteger := StrToInt(Trim(JsonPair.JsonValue.Value));
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'matrix') then
+        begin
+          if Trim(JsonPair.JsonValue.Value) = 'true' then
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'S'
+          else
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'N';
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'can_get') then
+        begin
+          if Trim(JsonPair.JsonValue.Value) = 'true' then
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'S'
+          else
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'N';
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'can_post') then
+        begin
+          if Trim(JsonPair.JsonValue.Value) = 'true' then
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'S'
+          else
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'N';
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'table_client_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSettable_client_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'table_server_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSettable_server_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'field_client_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSetfield_client_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'field_server_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSetfield_server_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end;
+      end;
+    end;
+    sincronizador.BlackListFieldClientDataSet.Post;
+  end;
+end;
+
 procedure TRunnerThreadPuters.PopulateTranslatedTableNames(aTranslatedTableName: TJsonDictionary);
 var
   i, j: integer;
   dmIntegrador: TDataIntegradorModuloWeb;
   JsonServer: TJsonArray;
 begin
+  //Carrega o Post Rules
   JsonServer := Self.getJsonFromServer;
   try
     for i := 0 to sincronizador.posterDataModules.Count - 1 do
@@ -600,6 +700,7 @@ begin
           http := getHTTPInstance;
           lTranslateTableNames := TJsonDictionary.Create;
           Self.PopulateTranslatedTableNames(lTranslateTableNames);
+          Self.PopulateBlackListFieldClientDataSet;
 
           //Fila com mais prioridade, todos os registros que nunca foram tentados ser sincronizados antes
           sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
@@ -708,10 +809,11 @@ begin
           dmIntegrador.dmPrincipal := dm;
           dmIntegrador.DataLog := Self.FDataLog;
           dmIntegrador.SetOnException(Self.FOnException);
+          dmIntegrador.setBlackListFieldCDS(sincronizador.BlackListFieldClientDataSet);
 
           if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
           begin
-            self.LimpaFilaSincronizacao
+            self.LimpaFilaSincronizacao;
           end
           else
           begin
