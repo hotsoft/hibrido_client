@@ -139,7 +139,7 @@ type
     function getJsonFromServer: TJsonArray;
     function getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
     procedure LimpaFilaSincronizacao;
-    procedure RestauraFilaSincronizacao;
+    procedure RestauraFilaSincronizacao(pRegistrosEncontrados: Integer);
     procedure ValidaPostRules(pTranslatedTables: TJsonDictionary);
     procedure EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal; Prioridade: Integer);
     procedure PopulateBlackListFieldClientDataSet;
@@ -286,10 +286,8 @@ var
   dmw:  TDataIntegradorModuloWebClass;
   _Trans: TDBXTransaction;
   vRegistrosEncontrados: Integer;
-  vSincronizador: TDataSincronizadorModuloWeb;
 begin
   CoInitializeEx(nil, 0);
-  vSincronizador := TDataSincronizadorModuloWeb.Create(self);
   try
     dm := getNewDataPrincipal;
     http := getHTTPInstance;
@@ -577,7 +575,6 @@ end;
 procedure TRunnerThreadPuters.PopulateBlackListFieldClientDataSet;
 var
   i: integer;
-  dmIntegrador: TDataIntegradorModuloWeb;
   JsonServer: TJsonArray;
   JsonObject: TJsonValue;
   JsonPair: TJsonPair;
@@ -599,28 +596,28 @@ begin
         JsonPair := TJsonObject(JsonObject).Get(i);
         if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'id') then
         begin
-          sincronizador.BlackListFieldClientDataSetid.AsInteger := StrToInt(Trim(JsonPair.JsonValue.Value));
+          sincronizador.BlackListFieldClientDataSetid.AsInteger := StrToInt(Trim(JsonPair.JsonValue.ToString));
         end
         else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'matrix') then
         begin
-          if Trim(JsonPair.JsonValue.Value) = 'true' then
+          if UpperCase(Trim(JsonPair.JsonValue.ToString)) = 'TRUE' then
             sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'S'
           else
             sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'N';
         end
         else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'can_get') then
         begin
-          if Trim(JsonPair.JsonValue.Value) = 'true' then
-            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'S'
+          if UpperCase(Trim(JsonPair.JsonValue.ToString)) = 'TRUE' then
+            sincronizador.BlackListFieldClientDataSetcan_get.AsString := 'S'
           else
-            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'N';
+            sincronizador.BlackListFieldClientDataSetcan_get.AsString := 'N';
         end
         else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'can_post') then
         begin
-          if Trim(JsonPair.JsonValue.Value) = 'true' then
-            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'S'
+          if UpperCase(Trim(JsonPair.JsonValue.ToString)) = 'TRUE' then
+            sincronizador.BlackListFieldClientDataSetcan_post.AsString := 'S'
           else
-            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'N';
+            sincronizador.BlackListFieldClientDataSetcan_post.AsString := 'N';
         end
         else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'table_client_name') then
         begin
@@ -718,7 +715,7 @@ begin
           //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
           //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by tentativas, idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
           if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
@@ -731,7 +728,7 @@ begin
         except
           on e: Exception do
           begin
-            self.RestauraFilaSincronizacao;
+            self.RestauraFilaSincronizacao(1);
             sincronizador.FilaClientDataSet.Next;
             Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
           end;
@@ -757,6 +754,7 @@ var
   i: Integer;
   JsonSetting: TJsonSetting;
   Aux: Integer;
+  RegistrosEncontrados: Integer;
 begin
   Aux := sincronizador.FilaClientDataSet.RecordCount;
   sincronizador.FilaClientDataSet.First;
@@ -811,13 +809,13 @@ begin
           dmIntegrador.SetOnException(Self.FOnException);
           dmIntegrador.setBlackListFieldCDS(sincronizador.BlackListFieldClientDataSet);
 
-          if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
+          if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, RegistrosEncontrados, http) then
           begin
             self.LimpaFilaSincronizacao;
           end
           else
           begin
-            self.RestauraFilaSincronizacao;
+            self.RestauraFilaSincronizacao(RegistrosEncontrados);
             sincronizador.FilaClientDataSet.Next;
           end;
         end
@@ -880,16 +878,22 @@ begin
   end;
 end;
 
-procedure TRunnerThreadPuters.RestauraFilaSincronizacao;
+procedure TRunnerThreadPuters.RestauraFilaSincronizacao(pRegistrosEncontrados: Integer);
 var
   BookMark: TBookMark;
 begin
+  //pRegistrosEncontrados:
+  //Quando um registro não foi enviado ao servidor, pois não atendeu as condições do POST RULES
+  //ele deve ficar na fila até atender a condição, sem contar como tentativas erradas de envio
   BookMark := sincronizador.FilaClientDataSet.GetBookmark;
-  sincronizador.FilaClientDataSet.Edit;
-  sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
-  sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
-  sincronizador.FilaClientDataSet.Post;
-  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  if pRegistrosEncontrados > 0 then
+  begin
+    sincronizador.FilaClientDataSet.Edit;
+    sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
+    sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
+    sincronizador.FilaClientDataSet.Post;
+    sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  end;
 
   try
     sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';

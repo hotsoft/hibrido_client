@@ -213,8 +213,8 @@ type
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
-    function importRecord(node: IXMLDomNode; var _LastId: Integer): boolean; virtual;
-    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer): Boolean;
+    function importRecord(node: IXMLDomNode; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean; virtual;
+    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): Boolean;
     function jaExiste(aNode:IXMLDOMNode; const id: integer; Integrador: TDataIntegradorModuloWeb; var aCustomWhere: string; var pIdLocal: Integer): Int64;
     function getFieldList(node: IXMLDomNode): string;
     function getFieldUpdateList(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
@@ -272,7 +272,7 @@ type
     function JsonObjectHasPair(const aName: string; aJson: TJSONObject): boolean;
     function DataSetToArray(aDs: TDataSet): TStringDictionary; virtual;
     procedure BeforeUpdateInsertRecord(aParentIntegrador, aIntegrador:TDataIntegradorModuloWeb; node: IXMLDomNode; const id: integer; var handled: boolean); virtual;
-    function ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer): Boolean; virtual;
+    function ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): Boolean; virtual;
     function getTranslatedTable(const aServerName: string): TDataIntegradorModuloWeb; virtual;
     function getNomeSingular: string; virtual;
     procedure SetNomeSingular(const Value: string); virtual;
@@ -314,7 +314,7 @@ type
     procedure getDadosAtualizados(var RegistrosEncontrados: Integer); virtual;
     function saveRecordToRemote(ds: TDataSet; var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
     procedure migrateSingletonTableToRemote;
-    function postRecordsToRemote(pDataSetFila: TClientDataSet; http: TidHTTP = nil): Boolean; virtual;
+    function postRecordsToRemote(pDataSetFila: TClientDataSet; var vTotal: Integer; http: TidHTTP = nil): Boolean; virtual;
     class procedure updateDataSets; virtual;
     procedure afterDadosAtualizados; virtual;
     function getHumanReadableName: string; virtual;
@@ -465,6 +465,7 @@ begin
   //evita de salvar o exame duas vezes
   if (not (aRetornoStream.DataString.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
   begin
+    CoInitialize(nil);
     doc := CoDOMDocument60.Create;
     try
       doc.loadXML(aRetornoStream.DataString);
@@ -485,7 +486,7 @@ begin
         begin
           if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
             continue;
-          if not aDataIntegradorModuloWeb.importRecord(node, aLastId) and aDataIntegradorModuloWeb.StopOnGetRecordError then
+          if not aDataIntegradorModuloWeb.importRecord(node, aLastId, aTabelaIgnorar, aIdRegistroIgnorar) and aDataIntegradorModuloWeb.StopOnGetRecordError then
           begin
             Result := False;
             Break
@@ -622,7 +623,7 @@ begin
   result := 500;
 end;
 
-function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode; var _LastId: Integer): boolean;
+function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean;
 var
   id: integer;
   _Trans: TDBXTransaction;
@@ -635,7 +636,7 @@ begin
     begin
       _Trans := dmPrincipal.startTransaction;
       try
-        Result := Self.updateInsertRecord(node, id, opGET, _LastId);
+        Result := Self.updateInsertRecord(node, id, opGET, _LastId, aTabelaIgnorar, aIdRegistroIgnorar);
         dmPrincipal.commit(_Trans);
       except
         on E:Exception do
@@ -837,12 +838,14 @@ var
   vIdLocal: Integer;
 begin
   vIdLocal := self.getIdLocalByIdRemoto(UpperCase(Integrador.NomeTabela), Integrador.nomePKLocal, aId);
-  Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal) +
-  ' and exists(select 1 from HIBRIDODADOSREMOTOS ' + ' where tabela = ' + QuotedStr(UpperCase(Integrador.nomeTabela)) + ' and id = ' + IntToStr(vIdLocal) +
-  ' and version_id <> ' + IntToStr(FVersionIdAtual) + ')';
+  Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal);
+//  ' and exists(select 1 from HIBRIDODADOSREMOTOS ' + ' where tabela = ' + QuotedStr(UpperCase(Integrador.nomeTabela)) + ' and id = ' + IntToStr(vIdLocal)
+//  + ' and version_id <> ' + IntToStr(FVersionIdAtual)
+//  + ')';
 end;
 
-function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer) : Boolean;
+function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer;
+aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
 var
   i: integer;
   qry: TSQLDataSet;
@@ -872,6 +875,14 @@ begin
   FVersionIdAtual := StrToInt64(node.selectSingleNode('version-id').text);
   FIdRemotoAtual := id;
   try
+    if (aTabelaIgnorar = Integrador.nomeTabela) and (aIdRegistroIgnorar = id) then
+    begin
+      //Isso deve acontecer apenas importando um registro pela recursividade, significa que o registro que acionou a recursidade foi 
+      //retornado como item filho de uma tabela superior, esse mesmo registro não pode ser inserido mais de 1 vez
+      Result := True;
+      exit; 
+    end;      
+      
     if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
       if (pOperacao = opGET) and (not self.PodeAtualizar(Integrador.nomeTabela, id)) then
@@ -958,7 +969,7 @@ begin
             Self.BeforeUpdateInsertRecord(Self, Detail, nodeItem, ChildId, handled);
             if not handled then
             begin
-              Result := Self.ExecInsertRecord(nodeItem, ChildId, Detail, pOperacao, _LastIdFilho);
+              Result := Self.ExecInsertRecord(nodeItem, ChildId, Detail, pOperacao, _LastIdFilho, aTabelaIgnorar, aIdRegistroIgnorar);
               if not Result then
                 exit;
             end;
@@ -988,7 +999,7 @@ begin
   end;
 end;   }
 
-function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer) : Boolean;
+function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
 var
   handled : boolean;
 begin
@@ -996,7 +1007,7 @@ begin
   Result := True;
   Self.BeforeUpdateInsertRecord(nil, Self, node, id, handled);
   if not handled then
-    Result := Self.ExecInsertRecord(node, id, Self, pOperacao, _LastId);
+    Result := Self.ExecInsertRecord(node, id, Self, pOperacao, _LastId, aTabelaIgnorar, aIdRegistroIgnorar);
 end;
 
 procedure TDataIntegradorModuloWeb.updateSingletonRecord(node: IXMLDOMNode);
@@ -1233,9 +1244,15 @@ end;
 procedure TDataIntegradorModuloWeb.addDetailsToJsonList(aDetailList: TDetailList; aDs: TDataSet);
 var
   Detalhe: TTabelaDetalhe;
+  NomeTabelaPrincipal: String;
 begin
+  NomeTabelaPrincipal := self.getNomeTabela;
   for Detalhe in  Self.tabelasDetalhe do
+  begin
+    self.setNomeTabela(Detalhe.nomeTabela);
     Self.SelectDetails(aDetailList, aDs.fieldByName(nomePKLocal).AsInteger, Detalhe);
+  end;
+  self.setNomeTabela(NomeTabelaPrincipal);
 end;
 
 procedure TDataIntegradorModuloWeb.SelectDetailsIterate(aDetailList: TDetailList; aValorPK: integer);
@@ -1417,6 +1434,7 @@ begin
   Result := TJsonObject.Create;
   Result.Owned := False; // Manter como False
   FIdRemotoEncontrado := True;
+  vIdRemotoRegistroLocal := 0;
   for i := 0 to  aTranslations.size-1 do
   begin
     if aTranslations.get(i).pdv = 'idremoto' then
@@ -1922,11 +1940,10 @@ begin
   FStatementForPost:= aStatement;
 end;
 
-function TDataIntegradorModuloWeb.postRecordsToRemote(pDataSetFila: TClientDataSet; http: TidHTTP = nil) : Boolean;
+function TDataIntegradorModuloWeb.postRecordsToRemote(pDataSetFila: TClientDataSet; var vTotal: Integer; http: TidHTTP = nil) : Boolean;
 var
   qry: TSQLDataSet;
   salvou: boolean;
-  total: integer;
   criouHTTP: boolean;
   BookMark: TBookMark;
 begin
@@ -1967,7 +1984,7 @@ begin
         http.Request.Connection := 'keep-alive';
       end;
 
-      total := 0;
+      vTotal := 0;
       qry.First;
       while not qry.Eof do
       begin
@@ -1983,7 +2000,7 @@ begin
           if salvou then
           begin
             Self.Log('Registro Salvo');
-            inc(total);
+            inc(vTotal);
           end;
         except
           on e: Exception do
@@ -2000,7 +2017,7 @@ begin
         qry.Next;
       end;
 
-      if total = 0 then
+      if vTotal = 0 then
       begin
         if pDataSetFila.FieldByName('OPERACAO').AsString = 'D' then //Sempre remove da fila quando registro for de DELETE
           Result := True
@@ -2013,8 +2030,8 @@ begin
 
       if notifier <> nil then
         notifier.unflagSalvandoDadosServidor;
-      if Total > 0 then
-        Self.log(Format('Post de records para remote comitados. Classe: %s. Total de registros: %d.', [ClassName, total]), 'Sync');
+      if vTotal > 0 then
+        Self.log(Format('Post de records para remote comitados. Classe: %s. Total de registros: %d.', [ClassName, vTotal]), 'Sync');
 
     except
       Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
