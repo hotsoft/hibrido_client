@@ -161,9 +161,8 @@ type
     procedure addTabelaDetalheParamsIterate(valorPK: integer; params: TStringList);
     procedure ExecQuery(aQry: TSQLDataSet);
     function CheckQryCommandTextForDuasVias(const aId: integer;  Integrador: TDataIntegradorModuloWeb): string;
-    procedure resyncRecord(const aId: integer);
     function EscapeValueToServer(const aValue: string): string;
-    function GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String): Int64;
+ //   function GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String): Int64;
     procedure setVersionIdToJSON(pJSON: TJsonObject; pTabela, pId: String);
     function getLastVersionIDLocal(pTabela: String) : Int64;
     function RegistroAindaExiste(pTabela, pID: String): Boolean;
@@ -207,14 +206,15 @@ type
     FVersionIdAtual: Int64;
     FIdRemotoEncontrado : Boolean;
     FFilaSincronizacaoCDS: TClientDataSet;
+    FBlackListFieldCDS: TClientDataSet;
     FRecursividadeAtiva: Boolean;
     FIdRemotoAtual: Integer;
     function getVersionFieldName: string; virtual;
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
-    function importRecord(node: IXMLDomNode; var _LastId: Integer): boolean; virtual;
-    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer): Boolean;
+    function importRecord(node: IXMLDomNode; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean; virtual;
+    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): Boolean;
     function jaExiste(aNode:IXMLDOMNode; const id: integer; Integrador: TDataIntegradorModuloWeb; var aCustomWhere: string; var pIdLocal: Integer): Int64;
     function getFieldList(node: IXMLDomNode): string;
     function getFieldUpdateList(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
@@ -238,8 +238,7 @@ type
     procedure updateSingletonRecord(node: IXMLDOMNode);
     function getOrderBy: string; virtual;
     procedure addMoreParams(ds: TDataSet; params: TStringList); virtual;
-    procedure prepareMultipartParams(ds: TDataSet;
-      multipartParams: TIdMultiPartFormDataStream); virtual; abstract;
+    procedure prepareMultipartParams(ds: TDataSet; multipartParams: TIdMultiPartFormDataStream); virtual;
     function singleton: boolean;
     function getUpdateBaseSQL(node: IXMLDOMNode; Integrador: TDataIntegradorModuloWeb): string;
     procedure addDetails(ds: TDataSet; params: TStringList);
@@ -247,7 +246,7 @@ type
       translations: TTranslationSet; nestedAttribute: string = ''): IXMLDomDocument2;
     function getAdditionalSaveConditions: string; virtual;
     function gerenciaRedirecionamentos(idLocal, idRemoto: integer): boolean; virtual;
-    function getNewDataPrincipal: IDataPrincipal; virtual; abstract;
+    function getNewDataPrincipal: IDataPrincipal; virtual;
     function maxRecords: integer; virtual;
     function getTimeoutValue: integer; virtual;
     function getDateFormat: String; virtual;
@@ -273,7 +272,7 @@ type
     function JsonObjectHasPair(const aName: string; aJson: TJSONObject): boolean;
     function DataSetToArray(aDs: TDataSet): TStringDictionary; virtual;
     procedure BeforeUpdateInsertRecord(aParentIntegrador, aIntegrador:TDataIntegradorModuloWeb; node: IXMLDomNode; const id: integer; var handled: boolean); virtual;
-    function ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer): Boolean; virtual;
+    function ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): Boolean; virtual;
     function getTranslatedTable(const aServerName: string): TDataIntegradorModuloWeb; virtual;
     function getNomeSingular: string; virtual;
     procedure SetNomeSingular(const Value: string); virtual;
@@ -297,6 +296,7 @@ type
     function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean; virtual;
     procedure UpdateHibridoDadosRemotos(pVersionId: Int64; pIdLocal, pIdRemoto: integer; pTabela: String; pOperacao: String; Transaction: TDBXTransaction = nil); virtual;
     procedure UpdateHibridoMetaDadosRemotos(aLastVersionId: Int64; Transaction: TDBXTransaction = nil);
+    function ValidaBlackListField(pTabela, pCampo: String; pHTTPAction: THttpAction; pIdRemoto: Integer = 0): Boolean;
     const
       cNullToServer = '§NULL§';
   public
@@ -314,12 +314,12 @@ type
     procedure getDadosAtualizados(var RegistrosEncontrados: Integer); virtual;
     function saveRecordToRemote(ds: TDataSet; var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
     procedure migrateSingletonTableToRemote;
-    function postRecordsToRemote(pDataSetFila: TClientDataSet; http: TidHTTP = nil): Boolean; virtual;
+    function postRecordsToRemote(pDataSetFila: TClientDataSet; var vTotal: Integer; http: TidHTTP = nil): Boolean; virtual;
     class procedure updateDataSets; virtual;
     procedure afterDadosAtualizados; virtual;
     function getHumanReadableName: string; virtual;
     property DataLog: ILog read FDataLog write SetDataLog;
-    constructor Create(AOwner: TComponent; aHTTP: TIdHTTP); virtual;
+    constructor CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP); virtual;
     destructor Destroy; override;
     function getNomeTabela: string; virtual;
     procedure setNomeTabela(const Value: string); virtual;
@@ -349,6 +349,7 @@ type
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
     function getURL: string; virtual;
     function getDefaultParams: string; virtual;
+    procedure setBlackListFieldCDS(pBlackListFieldCDS : TClientDataSet);
   end;
 
 
@@ -373,7 +374,7 @@ type
     procedure setNomeParametro(const Value: string); virtual;
     function getNewId(node: IXMLDomNode): Integer; override;
   public
-    constructor Create(AOwner: TComponent; aHTTP: TIdHTTP); override;
+    constructor CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP); override;
     destructor Destroy; override;
     property nomeParametro: string read GetNomeParametro write setNomeParametro;
   end;
@@ -382,7 +383,7 @@ var
   DataIntegradorModuloWeb: TDataIntegradorModuloWeb;
 implementation
 
-uses AguardeFormUn, ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn, MSHTML, HibridoConsts;
+uses ComObj, idCoderMIME, IdGlobal, UtilsUnitAgendadorUn, MSHTML, HibridoConsts;
 
 {$R *.dfm}
 
@@ -464,6 +465,7 @@ begin
   //evita de salvar o exame duas vezes
   if (not (aRetornoStream.DataString.IsEmpty)) and Self.getHTTP.Response.ContentType.Contains('xml') then
   begin
+    CoInitialize(nil);
     doc := CoDOMDocument60.Create;
     try
       doc.loadXML(aRetornoStream.DataString);
@@ -484,7 +486,7 @@ begin
         begin
           if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
             continue;
-          if not aDataIntegradorModuloWeb.importRecord(node, aLastId) and aDataIntegradorModuloWeb.StopOnGetRecordError then
+          if not aDataIntegradorModuloWeb.importRecord(node, aLastId, aTabelaIgnorar, aIdRegistroIgnorar) and aDataIntegradorModuloWeb.StopOnGetRecordError then
           begin
             Result := False;
             Break
@@ -621,7 +623,7 @@ begin
   result := 500;
 end;
 
-function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode; var _LastId: Integer): boolean;
+function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean;
 var
   id: integer;
   _Trans: TDBXTransaction;
@@ -634,7 +636,7 @@ begin
     begin
       _Trans := dmPrincipal.startTransaction;
       try
-        Result := Self.updateInsertRecord(node, id, opGET, _LastId);
+        Result := Self.updateInsertRecord(node, id, opGET, _LastId, aTabelaIgnorar, aIdRegistroIgnorar);
         dmPrincipal.commit(_Trans);
       except
         on E:Exception do
@@ -652,32 +654,6 @@ begin
   end
   else
     updateSingletonRecord(node);
-end;
-
-procedure TDataIntegradorModuloWeb.resyncRecord(const aId: integer);
-var
-  qry: TSQLDataSet;
-  _Trans: TDBXTransaction;
-begin
-  qry := DMPrincipal.getQuery;
-  try
-    if aId > 0 then
-    begin
-      _trans := dmPrincipal.startTransaction;
-      try
-        qry.CommandText := 'UPDATE ' + Self.nomeTabela + ' Set SalvouRetaguarda = ''N'' ' + Self.CheckQryCommandTextForDuasVias(aId, Self);
-        ExecQuery(qry);
-        dmPrincipal.commit(_Trans);
-      except
-        on E:Exception do
-        begin
-          dmPrincipal.rollback(_Trans);
-        end;
-      end;
-    end;
-  finally
-    qry.Free;
-  end;
 end;
 
 function TDataIntegradorModuloWeb.shouldContinue: boolean;
@@ -781,7 +757,7 @@ begin
     end;
 
     name := LowerCase(translateFieldNameServerToPdv(node.childNodes.item[i], Integrador));
-    ValorCampo := translateFieldValue(node.childNodes.item[i], Integrador);
+    ValorCampo := UTF8Encode(translateFieldValue(node.childNodes.item[i], Integrador));
     if name <> '*' then
     begin
       if Self.getIncludeFieldNameOnList(DMLOperation, name, Integrador) then
@@ -799,35 +775,35 @@ begin
           if Field <> nil then
           begin
             case Field.DataType of
-              ftString, ftMemo: qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(ValorCampo);
-              ftInteger: qry.ParamByName(name).AsInteger := StrToInt(ValorCampo);
-              ftLargeint: qry.ParamByName(name).AsLargeInt := StrToInt(ValorCampo);
+              ftString, ftMemo: qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(UTF8ToString(ValorCampo));
+              ftInteger: qry.ParamByName(name).AsInteger := StrToInt(UTF8ToString(ValorCampo));
+              ftLargeint: qry.ParamByName(name).AsLargeInt := StrToInt(UTF8ToString(ValorCampo));
               ftDateTime, ftTimeStamp:
                 begin
-                  ValorCampo := StringReplace(ValorCampo, '''','', [rfReplaceAll]);
-                  ValorCampo := Trim(StringReplace(ValorCampo, '.','/', [rfReplaceAll]));
+                  ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '''','', [rfReplaceAll]));
+                  ValorCampo := UTF8Encode(Trim(StringReplace(UTF8ToString(ValorCampo), '.','/', [rfReplaceAll])));
                   lFormatSettings.DateSeparator := '/';
                   lFormatSettings.TimeSeparator := ':';
                   lFormatSettings.ShortDateFormat := 'dd/MM/yyyy hh:mm:ss';
-                  qry.ParamByName(name).AsDateTime := StrToDateTime(ValorCampo, lFormatSettings);
+                  qry.ParamByName(name).AsDateTime := StrToDateTime(UTF8ToString(ValorCampo), lFormatSettings);
                 end;
               ftCurrency, ftTime:
                 begin
-                  ValorCampo := StringReplace(ValorCampo, '''','', [rfReplaceAll]);
-                  qry.ParamByName(name).AsCurrency := StrToCurr(ValorCampo);
+                  ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '''','', [rfReplaceAll]));
+                  qry.ParamByName(name).AsCurrency := StrToCurr(UTF8ToString(ValorCampo));
                 end;
               ftSingle, ftFloat, ftFMTBcd:
               begin
-                ValorCampo := StringReplace(ValorCampo, '.', ',',[rfReplaceAll]);
-                ValorCampo := StringReplace(ValorCampo, '''','', [rfReplaceAll]);
-                qry.ParamByName(name).AsFloat := StrToFloat(ValorCampo);
+                ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '.', ',',[rfReplaceAll]));
+                ValorCampo := UTF8Encode(StringReplace(UTF8ToString(ValorCampo), '''','', [rfReplaceAll]));
+                qry.ParamByName(name).AsFloat := StrToFloat(UTF8ToString(ValorCampo));
               end;
               ftBlob:
               begin
-                qry.ParamByName(name).LoadFromStream(self.BinaryFromBase64(ValorCampo), ftBlob);
+                qry.ParamByName(name).LoadFromStream(self.BinaryFromBase64(UTF8ToString(ValorCampo)), ftBlob);
               end
             else
-              qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(ValorCampo);
+              qry.ParamByName(name).AsString := Self.UnEscapeValueFromServer(UTF8ToString(ValorCampo));
             end;
           end;
         end;
@@ -862,15 +838,16 @@ var
   vIdLocal: Integer;
 begin
   vIdLocal := self.getIdLocalByIdRemoto(UpperCase(Integrador.NomeTabela), Integrador.nomePKLocal, aId);
-  Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal) +
-  ' and exists(select 1 from HIBRIDODADOSREMOTOS ' + ' where tabela = ' + QuotedStr(UpperCase(Integrador.nomeTabela)) + ' and id = ' + IntToStr(vIdLocal) +
-  ' and version_id <> ' + IntToStr(FVersionIdAtual) + ')';
+  Result := ' WHERE ' + UpperCase(Integrador.NomeTabela) + '.' + Integrador.nomePKLocal + ' = ' +  IntToStr(vIdLocal);
+//  ' and exists(select 1 from HIBRIDODADOSREMOTOS ' + ' where tabela = ' + QuotedStr(UpperCase(Integrador.nomeTabela)) + ' and id = ' + IntToStr(vIdLocal)
+//  + ' and version_id <> ' + IntToStr(FVersionIdAtual)
+//  + ')';
 end;
 
-function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer) : Boolean;
+function TDataIntegradorModuloWeb.ExecInsertRecord(node: IXMLDomNode; const id: integer; Integrador: TDataIntegradorModuloWeb; pOperacao: String; var _LastId: Integer;
+aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
 var
   i: integer;
-  name: string;
   qry: TSQLDataSet;
   FieldsListUpdate, FieldsListInsert : string;
   NewId: integer;
@@ -886,13 +863,11 @@ var
   StrCheckInsert: TStringList;
   _CustomWhere: string;
   _WhereInUpdate: String;
-  Version_ID_From_Server: Int64;
   vIdLocal: Integer;
   _Trans: TDBXTransaction;
   _LastIdFilho: Integer;
 begin
   Result := False;
-  NewId := 0;
   _CustomWhere := EmptyStr;
   _WhereInUpdate := EmptyStr;
   qry := dmPrincipal.getQuery;
@@ -900,6 +875,14 @@ begin
   FVersionIdAtual := StrToInt64(node.selectSingleNode('version-id').text);
   FIdRemotoAtual := id;
   try
+    if (aTabelaIgnorar = Integrador.nomeTabela) and (aIdRegistroIgnorar = id) then
+    begin
+      //Isso deve acontecer apenas importando um registro pela recursividade, significa que o registro que acionou a recursidade foi 
+      //retornado como item filho de uma tabela superior, esse mesmo registro não pode ser inserido mais de 1 vez
+      Result := True;
+      exit; 
+    end;      
+      
     if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
       if (pOperacao = opGET) and (not self.PodeAtualizar(Integrador.nomeTabela, id)) then
@@ -986,7 +969,7 @@ begin
             Self.BeforeUpdateInsertRecord(Self, Detail, nodeItem, ChildId, handled);
             if not handled then
             begin
-              Result := Self.ExecInsertRecord(nodeItem, ChildId, Detail, pOperacao, _LastIdFilho);
+              Result := Self.ExecInsertRecord(nodeItem, ChildId, Detail, pOperacao, _LastIdFilho, aTabelaIgnorar, aIdRegistroIgnorar);
               if not Result then
                 exit;
             end;
@@ -1001,7 +984,7 @@ begin
   end;
 end;
 
-function TDataIntegradorModuloWeb.GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String) : Int64;
+{function TDataIntegradorModuloWeb.GetVersionIdFromServer(pIdRemoto: Integer; pNomeTabela: String) : Int64;
 var
   http: TidHTTP;
 begin
@@ -1014,9 +997,9 @@ begin
   finally
     FreeAndNil(http);
   end;
-end;
+end;   }
 
-function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer) : Boolean;
+function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
 var
   handled : boolean;
 begin
@@ -1024,7 +1007,7 @@ begin
   Result := True;
   Self.BeforeUpdateInsertRecord(nil, Self, node, id, handled);
   if not handled then
-    Result := Self.ExecInsertRecord(node, id, Self, pOperacao, _LastId);
+    Result := Self.ExecInsertRecord(node, id, Self, pOperacao, _LastId, aTabelaIgnorar, aIdRegistroIgnorar);
 end;
 
 procedure TDataIntegradorModuloWeb.updateSingletonRecord(node: IXMLDOMNode);
@@ -1261,9 +1244,15 @@ end;
 procedure TDataIntegradorModuloWeb.addDetailsToJsonList(aDetailList: TDetailList; aDs: TDataSet);
 var
   Detalhe: TTabelaDetalhe;
+  NomeTabelaPrincipal: String;
 begin
+  NomeTabelaPrincipal := self.getNomeTabela;
   for Detalhe in  Self.tabelasDetalhe do
+  begin
+    self.setNomeTabela(Detalhe.nomeTabela);
     Self.SelectDetails(aDetailList, aDs.fieldByName(nomePKLocal).AsInteger, Detalhe);
+  end;
+  self.setNomeTabela(NomeTabelaPrincipal);
 end;
 
 procedure TDataIntegradorModuloWeb.SelectDetailsIterate(aDetailList: TDetailList; aValorPK: integer);
@@ -1274,6 +1263,11 @@ begin
   begin
     SelectDetails(aDetailList, aValorPK, Detalhe);
   end;
+end;
+
+procedure TDataIntegradorModuloWeb.setBlackListFieldCDS(pBlackListFieldCDS: TClientDataSet);
+begin
+  FBlackListFieldCDS := pBlackListFieldCDS;
 end;
 
 procedure TDataIntegradorModuloWeb.SelectDetails(aDetailList: TDetailList; aValorPK: integer; aTabelaDetalhe: TTabelaDetalhe);
@@ -1378,7 +1372,6 @@ var
   nome: String;
   value: String;
   fieldValue: string;
-  BlobStream: TStringStream;
   FieldStream: TStream;
   Input: TMemoryStream;
 begin
@@ -1436,40 +1429,54 @@ var
   i: integer;
   nomeCampo, nome, valor, fieldValue: string;
   StringUTF8: UTF8String;
+  vIdRemotoRegistroLocal: Integer;
 begin
   Result := TJsonObject.Create;
   Result.Owned := False; // Manter como False
   FIdRemotoEncontrado := True;
+  vIdRemotoRegistroLocal := 0;
+  for i := 0 to  aTranslations.size-1 do
+  begin
+    if aTranslations.get(i).pdv = 'idremoto' then
+    begin
+      vIdRemotoRegistroLocal := StrToIntDef(aDict.Items[UpperCase(aTranslations.get(i).pdv)],0);
+      break;
+    end;
+  end;
+
   for i := 0 to aTranslations.size-1 do
   begin
     nomeCampo := aTranslations.get(i).pdv;
-    if aDict.ContainsKey(UpperCase(nomeCampo)) then
+    if ValidaBlackListField(getNomeTabela, nomeCampo, haPOST, vIdRemotoRegistroLocal) then
     begin
-      nome := aTranslations.get(i).server;
-      fieldValue := aDict.Items[UpperCase(aTranslations.get(i).pdv)];
-
-      valor := translateValueToServer(aTranslations.get(i), aTranslations.get(i).pdv,
-          aDs.fieldByName(aTranslations.get(i).pdv), aNestedAttribute, aTranslations.get(i).fkName, fieldValue);
-      if not JsonObjectHasPair(nome, Result) then
+      if aDict.ContainsKey(UpperCase(nomeCampo)) then
       begin
-        StringUTF8 := Self.EscapeValueToServer(valor);
-        if Self.encodeJsonValues then
+        nome := aTranslations.get(i).server;
+        fieldValue := aDict.Items[UpperCase(aTranslations.get(i).pdv)];
+
+        valor := translateValueToServer(aTranslations.get(i), aTranslations.get(i).pdv,
+            aDs.fieldByName(aTranslations.get(i).pdv), aNestedAttribute, aTranslations.get(i).fkName, fieldValue);
+        if not JsonObjectHasPair(nome, Result) then
         begin
-          if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
-            Result.AddPair(nome, valor)
-          else if StringUTF8 = '' then
-            Result.AddPair(nome, TIdEncoderMIME.EncodeString(cNullToServer, IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
+          StringUTF8 := UTF8Encode(Self.EscapeValueToServer(valor));
+          if Self.encodeJsonValues then
+          begin
+            if aDs.fieldByName(aTranslations.get(i).pdv).DataType = ftblob then
+              Result.AddPair(nome, valor)
+            else if StringUTF8 = '' then
+              Result.AddPair(nome, TIdEncoderMIME.EncodeString(cNullToServer, IndyTextEncoding_UTF8))   //Força o envio de null para campos vazios
+            else
+              Result.AddPair(nome, TIdEncoderMIME.EncodeString(UTF8ToString(StringUTF8), IndyTextEncoding_UTF8))
+          end
           else
-            Result.AddPair(nome, TIdEncoderMIME.EncodeString(StringUTF8, IndyTextEncoding_UTF8))
-        end
-        else
-          Result.AddPair(nome, valor);
+            Result.AddPair(nome, valor);
+        end;
       end;
-    end;
-    if UpperCase(NomeCampo) = UpperCase(GetNomePKLocal) then
-    begin
-      //Adiciona o Version_ID ao JSON
-      setVersionIdToJSON(Result, getNomeTabela, valor);
+      if UpperCase(NomeCampo) = UpperCase(GetNomePKLocal) then
+      begin
+        //Adiciona o Version_ID ao JSON
+        setVersionIdToJSON(Result, getNomeTabela, valor);
+      end;
     end;
   end;
 end;
@@ -1477,7 +1484,6 @@ end;
 procedure TDataIntegradorModuloWeb.setVersionIdToJSON(pJSON: TJsonObject; pTabela, pId: String);
 var
   qry: TSQLDataSet;
-  salvou: boolean;
 begin
   qry := dmPrincipal.getQuery;
   qry.CommandText := 'select version_id, IdRemoto from HibridoDadosRemotos where tabela = :tabela and ID = :ID';
@@ -1495,6 +1501,11 @@ end;
 function TDataIntegradorModuloWeb.getLastStream: TStringStream;
 begin
   Result := FLastStream;
+end;
+
+function TDataIntegradorModuloWeb.getNewDataPrincipal: IDataPrincipal;
+begin
+
 end;
 
 function TDataIntegradorModuloWeb.getNewId(node: IXMLDomNode): Integer;
@@ -1590,7 +1601,6 @@ end;
 
 function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; url: string; pTrans: TDBXTransaction): string;
 var
-  params: TStringList;
   pStream: TStringStream;
   DetailList: TDetailList;
   Content: IXMLDomDocument2;
@@ -1607,7 +1617,7 @@ begin
 
     if ds.FieldByName('IDREMOTO').AsInteger > 0 then
     begin
-      url := StringReplace(url, '?', '/' + ds.FieldByName('IDREMOTO').AsString + '?', []);
+      url := StringReplace(url, '.json?', '/' + ds.FieldByName('IDREMOTO').AsString + '.json?', []);
       http.Put(url, pStream, ResponseContent)
     end
     else
@@ -1617,8 +1627,10 @@ begin
     Self.FLastStream.LoadFromStream(pStream);
     Content := Self.getXMLContentAsXMLDom(result);
     if Content <> nil then
+    begin
       IdRemoto := Self.GetIdRemoto(Content);
-    self.UpdateHibridoDadosRemotos(self.GetVersionId(Content), ds.fieldByName(nomePKLocal).AsInteger, IdRemoto, self.nomeTabela, opPOST, pTrans);
+      self.UpdateHibridoDadosRemotos(self.GetVersionId(Content), ds.fieldByName(nomePKLocal).AsInteger, IdRemoto, self.nomeTabela, opPOST, pTrans);
+    end;
   finally
     pStream.Free;
     DetailList.Free;
@@ -1698,9 +1710,7 @@ end;
 function TDataIntegradorModuloWeb.saveRecordToRemote(ds: TDataSet;
   var salvou: boolean; http: TidHTTP = nil): IXMLDomDocument2;
 var
-  multipartParams: TidMultipartFormDataStream;
   xmlContent: String;
-  stream: TStringStream;
   url: string;
   criouHttp: boolean;
   log: string;
@@ -1803,10 +1813,10 @@ begin
         begin
           node := list.FindNode('error');
           if node <> nil then
-            Result := Trim(Result + UTF8ToString(HTTPDecode(node.Text)));
+            Result := Trim(Result + UTF8ToString(HTTPDecode(AnsiString(node.Text))));
         end
         else if list.FindNode('errors').IsTextElement then
-          Result := UTF8ToString(HTTPDecode(list.FindNode('errors').Text))
+          Result := UTF8ToString(HTTPDecode(AnsiString(list.FindNode('errors').Text)))
         else
           Result := aErro;
       end;
@@ -1930,11 +1940,10 @@ begin
   FStatementForPost:= aStatement;
 end;
 
-function TDataIntegradorModuloWeb.postRecordsToRemote(pDataSetFila: TClientDataSet; http: TidHTTP = nil) : Boolean;
+function TDataIntegradorModuloWeb.postRecordsToRemote(pDataSetFila: TClientDataSet; var vTotal: Integer; http: TidHTTP = nil) : Boolean;
 var
   qry: TSQLDataSet;
   salvou: boolean;
-  total: integer;
   criouHTTP: boolean;
   BookMark: TBookMark;
 begin
@@ -1975,7 +1984,7 @@ begin
         http.Request.Connection := 'keep-alive';
       end;
 
-      total := 0;
+      vTotal := 0;
       qry.First;
       while not qry.Eof do
       begin
@@ -1991,7 +2000,7 @@ begin
           if salvou then
           begin
             Self.Log('Registro Salvo');
-            inc(total);
+            inc(vTotal);
           end;
         except
           on e: Exception do
@@ -2008,7 +2017,7 @@ begin
         qry.Next;
       end;
 
-      if total = 0 then
+      if vTotal = 0 then
       begin
         if pDataSetFila.FieldByName('OPERACAO').AsString = 'D' then //Sempre remove da fila quando registro for de DELETE
           Result := True
@@ -2021,8 +2030,8 @@ begin
 
       if notifier <> nil then
         notifier.unflagSalvandoDadosServidor;
-      if Total > 0 then
-        Self.log(Format('Post de records para remote comitados. Classe: %s. Total de registros: %d.', [ClassName, total]), 'Sync');
+      if vTotal > 0 then
+        Self.log(Format('Post de records para remote comitados. Classe: %s. Total de registros: %d.', [ClassName, vTotal]), 'Sync');
 
     except
       Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName, 'Sync');
@@ -2038,6 +2047,12 @@ begin
       pDataSetFila.BookMark := BookMark;
   end;
   Result := salvou;
+end;
+
+procedure TDataIntegradorModuloWeb.prepareMultipartParams(ds: TDataSet;
+  multipartParams: TIdMultiPartFormDataStream);
+begin
+
 end;
 
 function TDataIntegradorModuloWeb.RegistroAindaExiste(pTabela, pID: String) : Boolean;
@@ -2154,7 +2169,7 @@ begin
       end;
 end;
 
-constructor TDataIntegradorModuloWeb.Create(AOwner: TComponent; aHTTP: TIdHTTP);
+constructor TDataIntegradorModuloWeb.CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP);
 begin
   inherited Create(AOwner);
   verbose := false;
@@ -2419,9 +2434,27 @@ begin
   Result := Result + Self.getDefaultParams;
 end;
 
+function TDataIntegradorModuloWeb.ValidaBlackListField(pTabela, pCampo: String; pHTTPAction: THttpAction; pIdRemoto: Integer = 0) : Boolean;
+begin
+  if self.FBlackListFieldCDS.Locate('table_client_name;field_client_name', VarArrayOf([pTabela, pCampo]), [loCaseInsensitive]) then
+  begin
+    if pHTTPAction = haPost then
+    begin
+      if pIdRemoto > 0 then
+        Result := self.FBlackListFieldCDS.fieldbyname('can_post').AsString = 'S'
+      else
+        Result := True;
+    end
+    else
+      Result := self.FBlackListFieldCDS.fieldbyname('can_get').AsString = 'S'
+  end
+  else
+    Result := True;
+end;
+
 { TTabelaDetalhe }
 
-constructor TTabelaDetalhe.Create(AOwner: TComponent; aHTTP: TIdHTTP);
+constructor TTabelaDetalhe.CreateOwn(AOwner: TComponent; aHTTP: TIdHTTP);
 begin
   inherited;
   translations := TTranslationSet.create(nil);

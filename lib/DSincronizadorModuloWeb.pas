@@ -48,6 +48,15 @@ type
     MetaDadosClientDataSetBaixar: TBooleanField;
     MetaDadosClientDataSetnome_plural: TStringField;
     MetaDadosClientDataSetVERSION_ID_SERVER: TLargeintField;
+    BlackListFieldClientDataSet: TClientDataSet;
+    BlackListFieldClientDataSetid: TIntegerField;
+    BlackListFieldClientDataSetmatrix: TStringField;
+    BlackListFieldClientDataSetcan_get: TStringField;
+    BlackListFieldClientDataSetcan_post: TStringField;
+    BlackListFieldClientDataSettable_client_name: TStringField;
+    BlackListFieldClientDataSettable_server_name: TStringField;
+    BlackListFieldClientDataSetfield_client_name: TStringField;
+    BlackListFieldClientDataSetfield_server_name: TStringField;
     procedure DataModuleCreate(Sender: TObject);
     procedure sincronizaRetaguardaTimerTimer(Sender: TObject);
   private
@@ -91,6 +100,7 @@ type
   end;
 
   TCustomRunnerThread = class(TThread)
+
   private
     procedure Setnotifier(const Value: ISincronizacaoNotifier);
     procedure Setsincronizador(const Value: TDataSincronizadorModuloWeb);
@@ -129,9 +139,11 @@ type
     function getJsonFromServer: TJsonArray;
     function getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
     procedure LimpaFilaSincronizacao;
-    procedure RestauraFilaSincronizacao;
+    procedure RestauraFilaSincronizacao(pRegistrosEncontrados: Integer);
     procedure ValidaPostRules(pTranslatedTables: TJsonDictionary);
     procedure EnviarFila(http: TIdHTTP; lTranslateTableNames: TJsonDictionary; dm: IDataPrincipal; Prioridade: Integer);
+    procedure PopulateBlackListFieldClientDataSet;
+    function getJsonBlackListFieldFromServer: TJsonArray;
   protected
     procedure setMainFormPuttingTrue;
     procedure finishPuttingProcess;
@@ -209,7 +221,7 @@ begin
 
     for dmw in pSB do
     begin
-      dimw := dmw.Create(nil, http);
+      dimw := dmw.CreateOwn(nil, http);
       try
         if MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive]) then
         begin
@@ -234,7 +246,7 @@ begin
     end;
     JVersions.AddPair('metadata', JsonObj);
 
-    dmIntegrador := self.posterDataModules[0].Create(nil, http); //Apenas para pegar a URL
+    dmIntegrador := self.posterDataModules[0].CreateOwn(nil, http); //Apenas para pegar a URL
     pStream := TStringStream.Create(JVersions.ToString, TEncoding.UTF8);
     try
       dmIntegrador.CustomParams := Self.FCustomParams;
@@ -294,7 +306,7 @@ begin
             Break;
 
           _Trans := dm.startTransaction;
-          dimw := dmw.Create(nil, http);
+          dimw := dmw.CreateOwn(nil, http);
 
           if (MetaDadosClientDataSet.Locate('TABELA', dimw.nomeTabela, [loCaseInsensitive])) and
              (MetaDadosClientDataSetBaixar.AsBoolean) then
@@ -309,9 +321,10 @@ begin
                 dimw.OnException := Self.OnException;
                 dimw.CustomParams := Self.FCustomParams;
                 dimw.DataLog := Self.FDataLog;
+                dimw.setBlackListFieldCDS(BlackListFieldClientDataSet);
                 dimw.getDadosAtualizados(vRegistrosEncontrados);
-                if Assigned(onStepGetters) then onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
-                inc(i);
+                if Assigned(onStepGetters) then
+                  onStepGetters(dimw.getHumanReadableName, i, getterBlocks.Count);
                 dm.commit(_Trans);
 
                 if vRegistrosEncontrados = 0 then
@@ -507,6 +520,20 @@ begin
     Result := TJsonArray.Create;
 end;
 
+function TRunnerThreadPuters.getJsonBlackListFieldFromServer: TJsonArray;
+var
+  JsonFromServer: String;
+begin
+  JsonFromServer := EmptyStr;
+  if (Self.FCustomParams <> nil) then
+    JsonFromServer := Self.FCustomParams.getJsonBlackListFieldFromServer;
+
+  if JsonFromServer <> EmptyStr then
+    Result :=  TJsonObject.ParseJSONValue(TEncoding.ASCII.getBytes(JsonFromServer),0) as TJsonArray
+  else
+    Result := TJsonArray.Create;
+end;
+
 function TRunnerThreadPuters.getJsonSetting(aJsonArray: TJsonArray; aDataIntegradorModuloWeb: TDataIntegradorModuloWeb): TJsonSetting;
 var
   i: integer;
@@ -545,19 +572,89 @@ begin
   end;
 end;
 
+procedure TRunnerThreadPuters.PopulateBlackListFieldClientDataSet;
+var
+  i: integer;
+  JsonServer: TJsonArray;
+  JsonObject: TJsonValue;
+  JsonPair: TJsonPair;
+begin
+  //Carrega o Black List Field
+  JsonServer := Self.getJsonBlackListFieldFromServer;
+  sincronizador.BlackListFieldClientDataSet.CreateDataSet;
+
+  if not sincronizador.BlackListFieldClientDataSet.Active then
+    sincronizador.BlackListFieldClientDataSet.Open;
+
+  for JsonObject in JsonServer do
+  begin
+    sincronizador.BlackListFieldClientDataSet.Append;
+    if (JsonObject is TJsonObject) then
+    begin
+      for i := 0 to TJsonObject(JsonObject).size - 1 do
+      begin
+        JsonPair := TJsonObject(JsonObject).Get(i);
+        if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'id') then
+        begin
+          sincronizador.BlackListFieldClientDataSetid.AsInteger := StrToInt(Trim(JsonPair.JsonValue.ToString));
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'matrix') then
+        begin
+          if UpperCase(Trim(JsonPair.JsonValue.ToString)) = 'TRUE' then
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'S'
+          else
+            sincronizador.BlackListFieldClientDataSetmatrix.AsString := 'N';
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'can_get') then
+        begin
+          if UpperCase(Trim(JsonPair.JsonValue.ToString)) = 'TRUE' then
+            sincronizador.BlackListFieldClientDataSetcan_get.AsString := 'S'
+          else
+            sincronizador.BlackListFieldClientDataSetcan_get.AsString := 'N';
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'can_post') then
+        begin
+          if UpperCase(Trim(JsonPair.JsonValue.ToString)) = 'TRUE' then
+            sincronizador.BlackListFieldClientDataSetcan_post.AsString := 'S'
+          else
+            sincronizador.BlackListFieldClientDataSetcan_post.AsString := 'N';
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'table_client_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSettable_client_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'table_server_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSettable_server_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'field_client_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSetfield_client_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end
+        else if (lowerCase(Trim(JsonPair.JsonString.Value)) = 'field_server_name') then
+        begin
+          sincronizador.BlackListFieldClientDataSetfield_server_name.AsString := Trim(JsonPair.JsonValue.Value);
+        end;
+      end;
+    end;
+    sincronizador.BlackListFieldClientDataSet.Post;
+  end;
+end;
+
 procedure TRunnerThreadPuters.PopulateTranslatedTableNames(aTranslatedTableName: TJsonDictionary);
 var
   i, j: integer;
   dmIntegrador: TDataIntegradorModuloWeb;
   JsonServer: TJsonArray;
 begin
+  //Carrega o Post Rules
   JsonServer := Self.getJsonFromServer;
   try
     for i := 0 to sincronizador.posterDataModules.Count - 1 do
     begin
       if not Self.ShouldContinue then
         Break;
-      dmIntegrador := sincronizador.posterDataModules[i].Create(nil, nil);
+      dmIntegrador := sincronizador.posterDataModules[i].CreateOwn(nil, nil);
       try
         if (dmIntegrador.getNomeTabela <> EmptyStr) and (dmIntegrador.NomeSingular <> EmptyStr) then
           if not aTranslatedTableName.ContainsKey(dmIntegrador.getNomeTabela) then
@@ -600,6 +697,7 @@ begin
           http := getHTTPInstance;
           lTranslateTableNames := TJsonDictionary.Create;
           Self.PopulateTranslatedTableNames(lTranslateTableNames);
+          Self.PopulateBlackListFieldClientDataSet;
 
           //Fila com mais prioridade, todos os registros que nunca foram tentados ser sincronizados antes
           sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
@@ -617,7 +715,7 @@ begin
           //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
           //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by tentativas, idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
           if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
@@ -630,7 +728,7 @@ begin
         except
           on e: Exception do
           begin
-            self.RestauraFilaSincronizacao;
+            self.RestauraFilaSincronizacao(1);
             sincronizador.FilaClientDataSet.Next;
             Self.log('Erros ao dar saveAllToRemote. Erro: ' + e.Message, 'Sync');
           end;
@@ -656,6 +754,7 @@ var
   i: Integer;
   JsonSetting: TJsonSetting;
   Aux: Integer;
+  RegistrosEncontrados: Integer;
 begin
   Aux := sincronizador.FilaClientDataSet.RecordCount;
   sincronizador.FilaClientDataSet.First;
@@ -671,14 +770,14 @@ begin
     if sincronizador.FilaClientDataSetOPERACAO.AsString = 'D' then //Delete
     begin
       Self.log('Enviando delete da ' + sincronizador.FilaClientDataSetTABELA.AsString + ' ID: ' + sincronizador.FilaClientDataSetID.AsString, 'Sync');
-      dmIntegrador := sincronizador.posterDataModules[0].Create(nil, http); //Aciona o SoftDelete
+      dmIntegrador := sincronizador.posterDataModules[0].CreateOwn(nil, http); //Aciona o SoftDelete
     end
     else
     begin
       //Começa no 1 pois a posição 0 é para o softdelete
       for I := 1 to sincronizador.posterDataModules.Count -1 do
       begin
-        dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+        dmIntegrador := sincronizador.posterDataModules[i].CreateOwn(nil, http);
         if UpperCase(dmIntegrador.nomeTabela) = UpperCase(sincronizador.FilaClientDataSetTABELA.AsString) then
           break
         else
@@ -708,14 +807,15 @@ begin
           dmIntegrador.dmPrincipal := dm;
           dmIntegrador.DataLog := Self.FDataLog;
           dmIntegrador.SetOnException(Self.FOnException);
+          dmIntegrador.setBlackListFieldCDS(sincronizador.BlackListFieldClientDataSet);
 
-          if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, http) then
+          if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, RegistrosEncontrados, http) then
           begin
-            self.LimpaFilaSincronizacao
+            self.LimpaFilaSincronizacao;
           end
           else
           begin
-            self.RestauraFilaSincronizacao;
+            self.RestauraFilaSincronizacao(RegistrosEncontrados);
             sincronizador.FilaClientDataSet.Next;
           end;
         end
@@ -738,15 +838,13 @@ var
   JsonSetting: TJsonSetting;
   dmIntegrador: TDataIntegradorModuloWeb;
   I: Integer;
-  http: TIdHTTP;
-  vRecNo: Integer;
 begin
   //Remove da fila todos os registros que não deve ser feito POST, isso é definido no Laboratory_Post_Rules
   try
     //Começa no 1 pois a posição 0 é para o softdelete
     for I := 1 to sincronizador.posterDataModules.Count -1 do
     begin
-      dmIntegrador := sincronizador.posterDataModules[i].Create(nil, http);
+      dmIntegrador := sincronizador.posterDataModules[i].CreateOwn(nil, nil);
       if dmIntegrador <> nil then
       begin
         try
@@ -780,16 +878,22 @@ begin
   end;
 end;
 
-procedure TRunnerThreadPuters.RestauraFilaSincronizacao;
+procedure TRunnerThreadPuters.RestauraFilaSincronizacao(pRegistrosEncontrados: Integer);
 var
   BookMark: TBookMark;
 begin
+  //pRegistrosEncontrados:
+  //Quando um registro não foi enviado ao servidor, pois não atendeu as condições do POST RULES
+  //ele deve ficar na fila até atender a condição, sem contar como tentativas erradas de envio
   BookMark := sincronizador.FilaClientDataSet.GetBookmark;
-  sincronizador.FilaClientDataSet.Edit;
-  sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
-  sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
-  sincronizador.FilaClientDataSet.Post;
-  sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  if pRegistrosEncontrados > 0 then
+  begin
+    sincronizador.FilaClientDataSet.Edit;
+    sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
+    sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
+    sincronizador.FilaClientDataSet.Post;
+    sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  end;
 
   try
     sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE';
