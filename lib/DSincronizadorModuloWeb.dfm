@@ -131,4 +131,44 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
       FieldName = 'VERSION_ID_SERVER'
     end
   end
+  object BlackListFieldClientDataSet: TClientDataSet
+    Aggregates = <>
+    FieldDefs = <>
+    IndexDefs = <>
+    Params = <>
+    StoreDefs = True
+    Left = 220
+    Top = 136
+    object BlackListFieldClientDataSetid: TIntegerField
+      FieldName = 'id'
+    end
+    object BlackListFieldClientDataSetmatrix: TStringField
+      FieldName = 'matrix'
+      Size = 1
+    end
+    object BlackListFieldClientDataSetcan_get: TStringField
+      FieldName = 'can_get'
+      Size = 1
+    end
+    object BlackListFieldClientDataSetcan_post: TStringField
+      FieldName = 'can_post'
+      Size = 1
+    end
+    object BlackListFieldClientDataSettable_client_name: TStringField
+      FieldName = 'table_client_name'
+      Size = 100
+    end
+    object BlackListFieldClientDataSettable_server_name: TStringField
+      FieldName = 'table_server_name'
+      Size = 100
+    end
+    object BlackListFieldClientDataSetfield_client_name: TStringField
+      FieldName = 'field_client_name'
+      Size = 100
+    end
+    object BlackListFieldClientDataSetfield_server_name: TStringField
+      FieldName = 'field_server_name'
+      Size = 100
+    end
+  end
 end
