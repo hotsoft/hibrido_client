@@ -40,6 +40,9 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
       FixedChar = True
       Size = 1
     end
+    object FilaDataSetIGNORADO: TSmallintField
+      FieldName = 'IGNORADO'
+    end
   end
   object FilaProvider: TDataSetProvider
     DataSet = FilaDataSet
@@ -79,6 +82,9 @@ object DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb
     object FilaClientDataSetSincronizado: TBooleanField
       FieldKind = fkInternalCalc
       FieldName = 'Sincronizado'
+    end
+    object FilaClientDataSetIGNORADO: TSmallintField
+      FieldName = 'IGNORADO'
     end
   end
   object MetaDadosDataSet: TSQLDataSet

@@ -1951,7 +1951,6 @@ begin
   criouHTTP := false;
   qry := dmPrincipal.getQuery;
   salvou := False;
-  result := False;
   BookMark := pDataSetFila.BookMark;
   try
     try
@@ -2024,7 +2023,10 @@ begin
         else
         //verifica se o registro não existe mais na tabela, nesse caso remover da fila
         if not self.RegistroAindaExiste(pDataSetFila.FieldByName('tabela').AsString, pDataSetFila.FieldByName('id').AsString) then
-          Result := True;
+          Result := True
+        else
+          //Ainda existe mas não foi sincronizado por alguma regra no where do SELECT, então deve ser marcado como ignorado
+          Result := False;
         exit;
       end;
 
