@@ -1985,11 +1985,8 @@ begin
 
       vTotal := 0;
       qry.First;
-      while not qry.Eof do
+      if (not qry.IsEmpty) and self.shouldContinue then
       begin
-        if (not self.shouldContinue) then
-          break;
-
         if notifier <> nil then
         begin
           notifier.setCustomMessage('Salvando ' + getHumanReadableName);
@@ -2008,12 +2005,10 @@ begin
               Self.FOnException(haPost, Self, E.ClassName, E.Message, qry.FieldByName(Self.nomePKLocal).AsInteger);
 
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
-            break;
             //if stopOnPostRecordError then
             //  raise
           end;
         end;
-        qry.Next;
       end;
 
       if vTotal = 0 then
