@@ -1987,17 +1987,13 @@ begin
       qry.First;
       if (not qry.IsEmpty) and self.shouldContinue then
       begin
+        inc(vTotal);
         if notifier <> nil then
         begin
           notifier.setCustomMessage('Salvando ' + getHumanReadableName);
         end;
         try
           saveRecordToRemote(qry, salvou, http);
-          if salvou then
-          begin
-            Self.Log('Registro Salvo');
-            inc(vTotal);
-          end;
         except
           on e: Exception do
           begin
@@ -2006,7 +2002,7 @@ begin
 
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
             //if stopOnPostRecordError then
-            //  raise
+            //raise
           end;
         end;
       end;
@@ -2027,7 +2023,7 @@ begin
 
       if notifier <> nil then
         notifier.unflagSalvandoDadosServidor;
-      if vTotal > 0 then
+      if (vTotal > 0) and (salvou) then
         Self.log(Format('Post de records para remote comitados. Classe: %s. Total de registros: %d.', [ClassName, vTotal]), 'Sync');
 
     except
