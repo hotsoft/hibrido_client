@@ -1951,7 +1951,6 @@ begin
   criouHTTP := false;
   qry := dmPrincipal.getQuery;
   salvou := False;
-  result := False;
   BookMark := pDataSetFila.BookMark;
   try
     try
@@ -1986,22 +1985,15 @@ begin
 
       vTotal := 0;
       qry.First;
-      while not qry.Eof do
+      if (not qry.IsEmpty) and self.shouldContinue then
       begin
-        if (not self.shouldContinue) then
-          break;
-
+        inc(vTotal);
         if notifier <> nil then
         begin
           notifier.setCustomMessage('Salvando ' + getHumanReadableName);
         end;
         try
           saveRecordToRemote(qry, salvou, http);
-          if salvou then
-          begin
-            Self.Log('Registro Salvo');
-            inc(vTotal);
-          end;
         except
           on e: Exception do
           begin
@@ -2009,12 +2001,10 @@ begin
               Self.FOnException(haPost, Self, E.ClassName, E.Message, qry.FieldByName(Self.nomePKLocal).AsInteger);
 
             Self.log('Erro no processamento do postRecordsToRemote. Classe: ' + ClassName +' | '+ e.Message, 'Sync');
-            break;
             //if stopOnPostRecordError then
-            //  raise
+            //raise
           end;
         end;
-        qry.Next;
       end;
 
       if vTotal = 0 then
@@ -2024,13 +2014,16 @@ begin
         else
         //verifica se o registro não existe mais na tabela, nesse caso remover da fila
         if not self.RegistroAindaExiste(pDataSetFila.FieldByName('tabela').AsString, pDataSetFila.FieldByName('id').AsString) then
-          Result := True;
+          Result := True
+        else
+          //Ainda existe mas não foi sincronizado por alguma regra no where do SELECT, então deve ser marcado como ignorado
+          Result := False;
         exit;
       end;
 
       if notifier <> nil then
         notifier.unflagSalvandoDadosServidor;
-      if vTotal > 0 then
+      if (vTotal > 0) and (salvou) then
         Self.log(Format('Post de records para remote comitados. Classe: %s. Total de registros: %d.', [ClassName, vTotal]), 'Sync');
 
     except

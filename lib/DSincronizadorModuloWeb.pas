@@ -57,6 +57,8 @@ type
     BlackListFieldClientDataSettable_server_name: TStringField;
     BlackListFieldClientDataSetfield_client_name: TStringField;
     BlackListFieldClientDataSetfield_server_name: TStringField;
+    FilaDataSetIGNORADO: TSmallintField;
+    FilaClientDataSetIGNORADO: TSmallintField;
     procedure DataModuleCreate(Sender: TObject);
     procedure sincronizaRetaguardaTimerTimer(Sender: TObject);
   private
@@ -699,9 +701,11 @@ begin
           Self.PopulateTranslatedTableNames(lTranslateTableNames);
           Self.PopulateBlackListFieldClientDataSet;
 
+          /// ******** FILA 1 *******
           //Fila com mais prioridade, todos os registros que nunca foram tentados ser sincronizados antes
           sincronizador.FilaDataSet.SQLConnection := dm.getQuery.SQLConnection;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where tentativas = 0 order by idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.Close;
+          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where coalesce(tentativas,0) = 0 and coalesce(ignorado,0) = 0 order by idhibridofilasincronizacao';
           sincronizador.FilaClientDataSet.Open;
 
           //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.
@@ -712,6 +716,22 @@ begin
           UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila');
           self.EnviarFila(http, lTranslateTableNames, dm, 0);
 
+          /// ******** FILA 2 *******
+          //Fila com registros que foram ignorados anteriormente por não corresponderem a uma regra de where do select,
+          //exemplo: requisições retidas
+          sincronizador.FilaClientDataSet.Close;
+          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where ignorado > 0 and coalesce(tentativas,0) = 0 order by idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.Open;
+
+          //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.
+          if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
+            self.ValidaPostRules(lTranslateTableNames);
+
+          Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de ignorados', 'Sync');
+          UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de ignorados');
+          self.EnviarFila(http, lTranslateTableNames, dm, 0);
+
+          // ******** FILA 3 ******
           //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
           //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
           sincronizador.FilaClientDataSet.Close;
@@ -890,6 +910,14 @@ begin
   begin
     sincronizador.FilaClientDataSet.Edit;
     sincronizador.FilaClientDataSetTENTATIVAS.AsInteger := sincronizador.FilaClientDataSetTENTATIVAS.AsInteger + 1;
+    sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
+    sincronizador.FilaClientDataSet.Post;
+    sincronizador.FilaClientDataSet.ApplyUpdates(0);
+  end
+  else  //O registro não foi encontrado mas ainda existe na base, então alguma condição do where não permitiu que fosse selecionado, exemplo: Requisição retida
+  begin
+    sincronizador.FilaClientDataSet.Edit;
+    sincronizador.FilaClientDataSetIGNORADO.AsInteger := sincronizador.FilaClientDataSetIGNORADO.AsInteger + 1;
     sincronizador.FilaClientDataSetULTIMATENTATIVA.AsDateTime := now;
     sincronizador.FilaClientDataSet.Post;
     sincronizador.FilaClientDataSet.ApplyUpdates(0);
