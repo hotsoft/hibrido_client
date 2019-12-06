@@ -157,6 +157,7 @@ type
 
 var
   DataSincronizadorModuloWeb: TDataSincronizadorModuloWeb;
+  RodarGetters: Boolean;
 
 implementation
 
@@ -481,12 +482,15 @@ begin
     Synchronize(Self.setMainFormGettingTrue);
   CoInitializeEx(nil, 0);
   try
-    sincronizador.notifier := Self.notifier;
-    sincronizador.threadControl := Self.threadControl;
-    sincronizador.Datalog := Self.DataLog;
-    sincronizador.CustomParams := Self.CustomParams;
-    sincronizador.OnException := Self.FOnException;
-    sincronizador.getUpdatedData;
+    if RodarGetters then
+    begin
+      sincronizador.notifier := Self.notifier;
+      sincronizador.threadControl := Self.threadControl;
+      sincronizador.Datalog := Self.DataLog;
+      sincronizador.CustomParams := Self.CustomParams;
+      sincronizador.OnException := Self.FOnException;
+      sincronizador.getUpdatedData;
+    end;
   finally
     CoUninitialize;
     if Self.Fnotifier <> nil then
@@ -745,6 +749,8 @@ begin
           UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas');
           self.EnviarFila(http, lTranslateTableNames, dm, 1);
 
+          //Se o RestrictPosters for TRUE significa que a sincronização foi iniciar pelo LM via stock ou financeiro, dessa forma não devem ser feitos os GETS
+          RodarGetters := not Self.FRestrictPosters;
         except
           on e: Exception do
           begin
@@ -828,6 +834,7 @@ begin
           dmIntegrador.DataLog := Self.FDataLog;
           dmIntegrador.SetOnException(Self.FOnException);
           dmIntegrador.setBlackListFieldCDS(sincronizador.BlackListFieldClientDataSet);
+          dmIntegrador.setRestrictPosters(FRestrictPosters);
 
           if dmIntegrador.postRecordsToRemote(sincronizador.FilaClientDataSet, RegistrosEncontrados, http) then
           begin

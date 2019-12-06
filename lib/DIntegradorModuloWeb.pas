@@ -207,6 +207,7 @@ type
     FIdRemotoEncontrado : Boolean;
     FFilaSincronizacaoCDS: TClientDataSet;
     FBlackListFieldCDS: TClientDataSet;
+    FRestrictPosters: Boolean;
     FRecursividadeAtiva: Boolean;
     FIdRemotoAtual: Integer;
     function getVersionFieldName: string; virtual;
@@ -350,6 +351,7 @@ type
     function getURL: string; virtual;
     function getDefaultParams: string; virtual;
     procedure setBlackListFieldCDS(pBlackListFieldCDS : TClientDataSet);
+    procedure setRestrictPosters(pRestrictPosters : Boolean);
   end;
 
 
@@ -1270,6 +1272,11 @@ begin
   FBlackListFieldCDS := pBlackListFieldCDS;
 end;
 
+procedure TDataIntegradorModuloWeb.setRestrictPosters(pRestrictPosters: Boolean);
+begin
+  FRestrictPosters := pRestrictPosters;
+end;
+
 procedure TDataIntegradorModuloWeb.SelectDetails(aDetailList: TDetailList; aValorPK: integer; aTabelaDetalhe: TTabelaDetalhe);
 var
   jsonArrayDetails: TJSONArrayContainer;
@@ -1741,8 +1748,9 @@ begin
       if (Result <> nil) and (duasVias or clientToServer) then
       begin
         salvou := True;
-        if self.nomeTabela <> 'softdelete' then
+        if (self.nomeTabela <> 'softdelete') and (not FRestrictPosters) then
         begin
+          //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
           //Atualiza o registro principal local logo após o POST
           self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
         end;
@@ -2345,6 +2353,7 @@ begin
       TTabelaDetalhe(Detalhe).DmPrincipal := Value;
   end;
 end;
+
 
 procedure TDataIntegradorModuloWeb.setIdAtual(const Value: Integer);
 begin
