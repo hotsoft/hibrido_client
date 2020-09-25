@@ -294,7 +294,7 @@ type
     function getHTTP: TIdHTTP;
     function GetFallbackWhere(aNode: IXMLDOMNode; var IdLocal: Integer): string; virtual;
     function getIdLocalByIdRemoto(pTabela, pNomePK: String; pIdRemoto: Integer): Integer; virtual;
-    function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean; virtual;
+    function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Integer; virtual;
     procedure UpdateHibridoDadosRemotos(pVersionId: Int64; pIdLocal, pIdRemoto: integer; pTabela: String; pOperacao: String; Transaction: TDBXTransaction = nil); virtual;
     procedure UpdateHibridoMetaDadosRemotos(aLastVersionId: Int64; Transaction: TDBXTransaction = nil);
     function ValidaBlackListField(pTabela, pCampo: String; pHTTPAction: THttpAction; pIdRemoto: Integer = 0): Boolean;
@@ -868,6 +868,7 @@ var
   vIdLocal: Integer;
   _Trans: TDBXTransaction;
   _LastIdFilho: Integer;
+  ResultPodeAtualizar: Integer;
 begin
   Result := False;
   _CustomWhere := EmptyStr;
@@ -887,10 +888,19 @@ begin
       
     if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
-      if (pOperacao = opGET) and (not self.PodeAtualizar(Integrador.nomeTabela, id)) then
+      if (pOperacao = opGET) then
       begin
-        Result := False;
-        exit;
+        ResultPodeAtualizar := self.PodeAtualizar(Integrador.nomeTabela, id);
+        if ResultPodeAtualizar = 1 then
+        begin
+          Result := False;
+          exit;
+        end
+        else if ResultPodeAtualizar = 2 then
+        begin
+          Result := True;
+          exit;
+        end;
       end;
 
       DMLOperation := dmUpdate;
@@ -1601,9 +1611,12 @@ begin
   end;
 end;
 
-function TDataIntegradorModuloWeb.PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean;
+function TDataIntegradorModuloWeb.PodeAtualizar(pTabela: String; pIdRemoto: Integer): Integer;
 begin
-  Result := True;
+  // 0 - Não ha problemas pode atualizar
+  // 1 - existe uma nova atualização do registro na fila de sincronizacao
+  // 2 - o version Id do registro corrente é >= ao version_id retornado da nuvem
+  Result := 0;
 end;
 
 function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; url: string; pTrans: TDBXTransaction): string;
@@ -1752,7 +1765,7 @@ begin
         begin
           //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
           //Atualiza o registro principal local logo após o POST
-          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
+          //self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);  //Faz o GET logo após o POST
         end;
       end;
     except
