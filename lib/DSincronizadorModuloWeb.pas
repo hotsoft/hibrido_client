@@ -724,7 +724,7 @@ begin
           //Fila com registros que foram ignorados anteriormente por não corresponderem a uma regra de where do select,
           //exemplo: requisições retidas
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where ignorado > 0 and coalesce(tentativas,0) = 0 order by idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where ignorado > 0 and coalesce(tentativas,0) = 0 order by ignorado';
           sincronizador.FilaClientDataSet.Open;
 
           //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.

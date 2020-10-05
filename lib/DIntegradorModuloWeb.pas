@@ -891,12 +891,7 @@ begin
       if (pOperacao = opGET) then
       begin
         ResultPodeAtualizar := self.PodeAtualizar(Integrador.nomeTabela, id);
-        if ResultPodeAtualizar = 1 then
-        begin
-          Result := False;
-          exit;
-        end
-        else if ResultPodeAtualizar = 2 then
+        if (ResultPodeAtualizar = 1) or (ResultPodeAtualizar = 2) then
         begin
           Result := True;
           exit;
@@ -1614,7 +1609,7 @@ end;
 function TDataIntegradorModuloWeb.PodeAtualizar(pTabela: String; pIdRemoto: Integer): Integer;
 begin
   // 0 - Não ha problemas pode atualizar
-  // 1 - existe uma nova atualização do registro na fila de sincronizacao
+  // 1 - existe uma nova atualização do registro na fila de sincronizacao, o registro não deve ser atualizao, mas o metadadosremotos precisa.
   // 2 - o version Id do registro corrente é >= ao version_id retornado da nuvem
   Result := 0;
 end;
