@@ -884,7 +884,7 @@ begin
       //retornado como item filho de uma tabela superior, esse mesmo registro não pode ser inserido mais de 1 vez
       Result := True;
       exit; 
-    end;      
+    end;
       
     if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
@@ -1760,7 +1760,7 @@ begin
         begin
           //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
           //Atualiza o registro principal local logo após o POST
-          //self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);  //Faz o GET logo após o POST
+          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);  //Faz o GET logo após o POST
         end;
       end;
     except
