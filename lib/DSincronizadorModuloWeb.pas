@@ -1,4 +1,3 @@
-
 unit DSincronizadorModuloWeb;
 
 interface
@@ -161,7 +160,7 @@ var
 
 implementation
 
-uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils, Zip, Shellapi, UtilsUnitAgendadorUn;
+uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils, Zip, Shellapi, UtilsUnitAgendadorUn, osSQLQuery;
 
 {$R *.dfm}
 
@@ -688,6 +687,7 @@ var
   dm: IDataPrincipal;
   http: TIdHTTP;
   lTranslateTableNames: TJsonDictionary;
+  qry: TosSQLQuery;
 begin
   inherited;
   if Self.Fnotifier <> nil then
@@ -748,6 +748,16 @@ begin
           Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas', 'Sync');
           UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas');
           self.EnviarFila(http, lTranslateTableNames, dm, 1);
+
+          try
+            qry := TosSQLQuery.Create(nil);
+            qry.SQLConnection := dm.getQuery.SQLConnection;
+            qry.SQL.Text := 'delete from hibridofilasincronizacao where tentativas > 5 or ignorado > 10 ';
+            qry.ExecSQL;
+          finally
+            qry.Close;
+            FreeAndNil(qry);
+          end;
 
           //Se o RestrictPosters for TRUE significa que a sincronização foi iniciar pelo LM via stock ou financeiro, dessa forma não devem ser feitos os GETS
           RodarGetters := not Self.FRestrictPosters;
