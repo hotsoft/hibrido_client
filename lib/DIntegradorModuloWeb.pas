@@ -1754,16 +1754,18 @@ begin
       Result := Self.getXMLContentAsXMLDom(xmlContent);
       vIdRemoto := Self.GetIdRemoto(Result);
 
-      Result := Self.getXMLContentAsXMLDom(getRemoteXmlContent(self.geturl + Self.nomePlural + '/' + IntToStr(vIdRemoto) + '.xml?' + getDefaultParams)); //Faz o GET logo após o POST
-
-      if (Result <> nil) and (duasVias or clientToServer) then
+      if self.nomeTabela <> 'softdelete' then
       begin
-        salvou := True;
-        if (self.nomeTabela <> 'softdelete') and (not FRestrictPosters) then
+        Result := Self.getXMLContentAsXMLDom(getRemoteXmlContent(self.geturl + Self.nomePlural + '/' + IntToStr(vIdRemoto) + '.xml?' + getDefaultParams)); //Faz o GET logo após o POST
+        if (Result <> nil) and (duasVias or clientToServer) then
         begin
-          //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
-          //Atualiza o registro principal local logo após o POST
-          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
+          salvou := True;
+          if not FRestrictPosters then
+          begin
+            //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
+            //Atualiza o registro principal local logo após o POST
+            self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
+          end;
         end;
       end;
     except
