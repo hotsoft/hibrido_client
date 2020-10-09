@@ -1092,8 +1092,6 @@ begin
         result := result + ' ' + name + ' = :' + name + ',';
   end;
   result := result + ' ' + 'CONTROLEHIBRIDO = :CONTROLEHIBRIDO';
-  //Remove a ultima virgula
-//  result := copy(result, 1, Length(result)-1);
   result := result + getFieldAdditionalUpdateList(node);
 end;
 
@@ -1731,6 +1729,7 @@ var
   log: string;
   _Trans: TDBXTransaction;
   _LastId: Integer;
+  vIdRemoto: Integer;
   //version_id: Int64;
 begin
   Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
@@ -1753,6 +1752,10 @@ begin
       Self.dmPrincipal.commit(_Trans);
 
       Result := Self.getXMLContentAsXMLDom(xmlContent);
+      vIdRemoto := Self.GetIdRemoto(Result);
+
+      Result := Self.getXMLContentAsXMLDom(getRemoteXmlContent(self.geturl + Self.nomePlural + '/' + IntToStr(vIdRemoto) + '.xml?' + getDefaultParams)); //Faz o GET logo após o POST
+
       if (Result <> nil) and (duasVias or clientToServer) then
       begin
         salvou := True;
@@ -1760,7 +1763,7 @@ begin
         begin
           //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
           //Atualiza o registro principal local logo após o POST
-          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);  //Faz o GET logo após o POST
+          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
         end;
       end;
     except
