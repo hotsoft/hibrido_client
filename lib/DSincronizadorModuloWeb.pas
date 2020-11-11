@@ -724,7 +724,7 @@ begin
           //Fila com registros que foram ignorados anteriormente por não corresponderem a uma regra de where do select,
           //exemplo: requisições retidas
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where ignorado > 0 and coalesce(tentativas,0) = 0 order by ignorado';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where ignorado between 1 and 20 and coalesce(tentativas,0) = 0 order by ignorado';
           sincronizador.FilaClientDataSet.Open;
 
           //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.
@@ -749,15 +749,16 @@ begin
           UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas');
           self.EnviarFila(http, lTranslateTableNames, dm, 1);
 
-          try
+          //Apagar da fila registros não sincronizados
+         { try
             qry := TosSQLQuery.Create(nil);
             qry.SQLConnection := dm.getQuery.SQLConnection;
-            qry.SQL.Text := 'delete from hibridofilasincronizacao where tentativas > 5 or ignorado > 10 ';
+            qry.SQL.Text := 'delete from hibridofilasincronizacao where tentativas > 10 or ignorado > 30 ';
             qry.ExecSQL;
           finally
             qry.Close;
             FreeAndNil(qry);
-          end;
+          end;}
 
           //Se o RestrictPosters for TRUE significa que a sincronização foi iniciar pelo LM via stock ou financeiro, dessa forma não devem ser feitos os GETS
           RodarGetters := not Self.FRestrictPosters;
