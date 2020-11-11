@@ -965,7 +965,12 @@ var
 begin
   sincronizador.FilaClientDataSet.Delete;
   sincronizador.FilaClientDataSet.ApplyUpdates(0);
-  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
+
+  //////  Foi comentado para deixar remover da fila apenas o registro corrente que foi sincronizado, estava acontecendo de alguns registros de tabelas filhas
+  ///  não serem sincronizados e não foram encontrados na tabela de fila
+  ///  removi essa parte para testar se o problema continuar
+  ///
+  {BookMark := sincronizador.FilaClientDataSet.GetBookmark;
   sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE ';
   sincronizador.FilaClientDataSet.Filtered := True;
   try
@@ -981,8 +986,7 @@ begin
 
     sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
   end;
-  sincronizador.FilaClientDataSet.ApplyUpdates(0);
-//  sincronizador.FilaClientDataSet.First;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);   }
 end;
 
 { TCustomRunnerThread }
