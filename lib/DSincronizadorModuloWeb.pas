@@ -739,7 +739,7 @@ begin
           //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
           //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by idhibridofilasincronizacao, Tentativas';
           sincronizador.FilaClientDataSet.Open;
 
           if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
