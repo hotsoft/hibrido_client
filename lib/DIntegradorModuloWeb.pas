@@ -1748,6 +1748,9 @@ begin
     _Trans := self.dmPrincipal.startTransaction;
     try
       url := getRequestUrlForAction(true, -1);
+      if self.nomeTabela <> 'softdelete' then
+        url := url + '&original_id=' + ds.fieldByName(nomePKLocal).AsString;
+
       xmlContent := Self.Post(ds, http, url, _Trans);
       Self.dmPrincipal.commit(_Trans);
 
@@ -1756,7 +1759,7 @@ begin
 
       if self.nomeTabela <> 'softdelete' then
       begin
-        Result := Self.getXMLContentAsXMLDom(getRemoteXmlContent(self.geturl + Self.nomePlural + '/' + IntToStr(vIdRemoto) + '.xml?' + getDefaultParams)); //Faz o GET logo após o POST
+        Result := Self.getXMLContentAsXMLDom(getRemoteXmlContent(self.geturl + Self.nomePlural + '/' + IntToStr(vIdRemoto) + '.xml?' + getDefaultParams + '&original_id=' + ds.fieldByName(nomePKLocal).AsString)); //Faz o GET logo após o POST
         if (Result <> nil) and (duasVias or clientToServer) then
         begin
           salvou := True;
@@ -1767,6 +1770,11 @@ begin
             self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
           end;
         end;
+      end
+      else
+      begin
+        if vIdRemoto > 0 then
+          salvou := True;
       end;
     except
       on e: EIdHTTPProtocolException do
