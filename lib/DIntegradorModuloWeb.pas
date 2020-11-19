@@ -2045,8 +2045,12 @@ begin
         if not self.RegistroAindaExiste(pDataSetFila.FieldByName('tabela').AsString, pDataSetFila.FieldByName('id').AsString) then
           Result := True
         else
+        begin
           //Ainda existe mas não foi sincronizado por alguma regra no where do SELECT, então deve ser marcado como ignorado
+          Self.log('---- POST Condicional ----- Tabela: ' + pDataSetFila.FieldByName('tabela').AsString + ' ID: ' + pDataSetFila.FieldByName('id').AsString + #13#10 +
+                   ' foi IGNORADO, SQL: ' + qry.commandText);
           Result := False;
+        end;
         exit;
       end;
 
