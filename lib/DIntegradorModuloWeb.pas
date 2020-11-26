@@ -2240,6 +2240,7 @@ var
   lookupIdRemoto: integer;
   fk: string;
   ValorCampo: string;
+  vQry: TSQLDataSet;
 begin
   if fieldValue <> '' then
     ValorCampo := fieldValue
@@ -2269,6 +2270,15 @@ begin
         FIdRemotoEncontrado := False;
         self.Log(Format('O IdRemoto da tabela %s para o registro local %s não foi encontrado, verifique se a sincronização desta tabela está funcionando, ou as regras de POST',
                        [UpperCase(translation.lookupRemoteTable), ValorCampo]));
+
+        //Força inserir esse registro não encontrado na fila
+        vQry := dmPrincipal.getQuery;
+        try
+          vQry.CommandText := 'update ' + UpperCase(translation.lookupRemoteTable) + ' set ' + fk + ' = ' +  fk + ' where ' + fk + ' = ' + ValorCampo;
+          Self.ExecQuery(vQry);
+        finally
+          FreeAndNil(vQry);
+        end;
       end;
     end;
   end
