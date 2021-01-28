@@ -1,4 +1,3 @@
-
 unit DSincronizadorModuloWeb;
 
 interface
@@ -161,7 +160,7 @@ var
 
 implementation
 
-uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils, Zip, Shellapi, UtilsUnitAgendadorUn;
+uses ComObj, acNetUtils, IdCoderMIME, IdGlobal, StrUtils, Zip, Shellapi, UtilsUnitAgendadorUn, osSQLQuery;
 
 {$R *.dfm}
 
@@ -688,6 +687,7 @@ var
   dm: IDataPrincipal;
   http: TIdHTTP;
   lTranslateTableNames: TJsonDictionary;
+  qry: TosSQLQuery;
 begin
   inherited;
   if Self.Fnotifier <> nil then
@@ -724,7 +724,7 @@ begin
           //Fila com registros que foram ignorados anteriormente por não corresponderem a uma regra de where do select,
           //exemplo: requisições retidas
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where ignorado > 0 and coalesce(tentativas,0) = 0 order by idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 500 * from hibridofilasincronizacao where ignorado between 1 and 20 and coalesce(tentativas,0) = 0 order by ignorado';
           sincronizador.FilaClientDataSet.Open;
 
           //FRestrictPosters - é TRUE quando a sincronização é iniciada pelo LM/LP para as tabelas do stockfin, quando o usuário acessa o recurso financeiro.
@@ -739,7 +739,7 @@ begin
           //Fila com prioridade menor, sincroniza os registros que deram problemas ao menos 1 vez
           //Se tentou sincronizar o registro por 10 vezes e deu problema, ele é deixado de lado, para ser avaliado o porque do erro.
           sincronizador.FilaClientDataSet.Close;
-          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by idhibridofilasincronizacao';
+          sincronizador.FilaClientDataSet.CommandText := 'select first 100 * from hibridofilasincronizacao where tentativas between 1 and 10 order by idhibridofilasincronizacao, Tentativas';
           sincronizador.FilaClientDataSet.Open;
 
           if (sincronizador.FilaClientDataSet.RecordCount > 0) and (not Self.FRestrictPosters) then
@@ -748,6 +748,17 @@ begin
           Self.log('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas', 'Sync');
           UtilsUnitAgendadorUn.WriteGreenLog('Encontrados ' + IntToStr(sincronizador.FilaClientDataSet.RecordCount) + ' registros na fila de tentativas');
           self.EnviarFila(http, lTranslateTableNames, dm, 1);
+
+          //Apagar da fila registros não sincronizados
+         { try
+            qry := TosSQLQuery.Create(nil);
+            qry.SQLConnection := dm.getQuery.SQLConnection;
+            qry.SQL.Text := 'delete from hibridofilasincronizacao where tentativas > 10 or ignorado > 30 ';
+            qry.ExecSQL;
+          finally
+            qry.Close;
+            FreeAndNil(qry);
+          end;}
 
           //Se o RestrictPosters for TRUE significa que a sincronização foi iniciar pelo LM via stock ou financeiro, dessa forma não devem ser feitos os GETS
           RodarGetters := not Self.FRestrictPosters;
@@ -955,7 +966,12 @@ var
 begin
   sincronizador.FilaClientDataSet.Delete;
   sincronizador.FilaClientDataSet.ApplyUpdates(0);
-  BookMark := sincronizador.FilaClientDataSet.GetBookmark;
+
+  //////  Foi comentado para deixar remover da fila apenas o registro corrente que foi sincronizado, estava acontecendo de alguns registros de tabelas filhas
+  ///  não serem sincronizados e não foram encontrados na tabela de fila
+  ///  removi essa parte para testar se o problema continuar
+  ///
+  {BookMark := sincronizador.FilaClientDataSet.GetBookmark;
   sincronizador.FilaClientDataSet.Filter := 'Sincronizado = TRUE ';
   sincronizador.FilaClientDataSet.Filtered := True;
   try
@@ -971,8 +987,7 @@ begin
 
     sincronizador.FilaClientDataSet.FreeBookmark(BookMark);
   end;
-  sincronizador.FilaClientDataSet.ApplyUpdates(0);
-//  sincronizador.FilaClientDataSet.First;
+  sincronizador.FilaClientDataSet.ApplyUpdates(0);   }
 end;
 
 { TCustomRunnerThread }

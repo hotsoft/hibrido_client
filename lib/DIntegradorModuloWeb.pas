@@ -294,7 +294,7 @@ type
     function getHTTP: TIdHTTP;
     function GetFallbackWhere(aNode: IXMLDOMNode; var IdLocal: Integer): string; virtual;
     function getIdLocalByIdRemoto(pTabela, pNomePK: String; pIdRemoto: Integer): Integer; virtual;
-    function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean; virtual;
+    function PodeAtualizar(pTabela: String; pIdRemoto: Integer): Integer; virtual;
     procedure UpdateHibridoDadosRemotos(pVersionId: Int64; pIdLocal, pIdRemoto: integer; pTabela: String; pOperacao: String; Transaction: TDBXTransaction = nil); virtual;
     procedure UpdateHibridoMetaDadosRemotos(aLastVersionId: Int64; Transaction: TDBXTransaction = nil);
     function ValidaBlackListField(pTabela, pCampo: String; pHTTPAction: THttpAction; pIdRemoto: Integer = 0): Boolean;
@@ -868,6 +868,7 @@ var
   vIdLocal: Integer;
   _Trans: TDBXTransaction;
   _LastIdFilho: Integer;
+  ResultPodeAtualizar: Integer;
 begin
   Result := False;
   _CustomWhere := EmptyStr;
@@ -883,14 +884,18 @@ begin
       //retornado como item filho de uma tabela superior, esse mesmo registro não pode ser inserido mais de 1 vez
       Result := True;
       exit; 
-    end;      
+    end;
       
     if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
-      if (pOperacao = opGET) and (not self.PodeAtualizar(Integrador.nomeTabela, id)) then
+      if (pOperacao = opGET) then
       begin
-        Result := False;
-        exit;
+        ResultPodeAtualizar := self.PodeAtualizar(Integrador.nomeTabela, id);
+        if (ResultPodeAtualizar = 1) or (ResultPodeAtualizar = 2) then
+        begin
+          Result := True;
+          exit;
+        end;
       end;
 
       DMLOperation := dmUpdate;
@@ -1087,8 +1092,6 @@ begin
         result := result + ' ' + name + ' = :' + name + ',';
   end;
   result := result + ' ' + 'CONTROLEHIBRIDO = :CONTROLEHIBRIDO';
-  //Remove a ultima virgula
-//  result := copy(result, 1, Length(result)-1);
   result := result + getFieldAdditionalUpdateList(node);
 end;
 
@@ -1601,9 +1604,12 @@ begin
   end;
 end;
 
-function TDataIntegradorModuloWeb.PodeAtualizar(pTabela: String; pIdRemoto: Integer): Boolean;
+function TDataIntegradorModuloWeb.PodeAtualizar(pTabela: String; pIdRemoto: Integer): Integer;
 begin
-  Result := True;
+  // 0 - Não ha problemas pode atualizar
+  // 1 - existe uma nova atualização do registro na fila de sincronizacao, o registro não deve ser atualizao, mas o metadadosremotos precisa.
+  // 2 - o version Id do registro corrente é >= ao version_id retornado da nuvem
+  Result := 0;
 end;
 
 function TDataIntegradorModuloWeb.Post(ds: TDataSet; http: TidHTTP; url: string; pTrans: TDBXTransaction): string;
@@ -1723,6 +1729,7 @@ var
   log: string;
   _Trans: TDBXTransaction;
   _LastId: Integer;
+  vIdRemoto: Integer;
   //version_id: Int64;
 begin
   Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
@@ -1741,19 +1748,33 @@ begin
     _Trans := self.dmPrincipal.startTransaction;
     try
       url := getRequestUrlForAction(true, -1);
+      if self.nomeTabela <> 'softdelete' then
+        url := url + '&original_id=' + ds.fieldByName(nomePKLocal).AsString;
+
       xmlContent := Self.Post(ds, http, url, _Trans);
       Self.dmPrincipal.commit(_Trans);
 
       Result := Self.getXMLContentAsXMLDom(xmlContent);
-      if (Result <> nil) and (duasVias or clientToServer) then
+      vIdRemoto := Self.GetIdRemoto(Result);
+
+      if self.nomeTabela <> 'softdelete' then
       begin
-        salvou := True;
-        if (self.nomeTabela <> 'softdelete') and (not FRestrictPosters) then
+        Result := Self.getXMLContentAsXMLDom(getRemoteXmlContent(self.geturl + Self.nomePlural + '/' + IntToStr(vIdRemoto) + '.xml?' + getDefaultParams + '&original_id=' + ds.fieldByName(nomePKLocal).AsString)); //Faz o GET logo após o POST
+        if (Result <> nil) and (duasVias or clientToServer) then
         begin
-          //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
-          //Atualiza o registro principal local logo após o POST
-          self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
+          salvou := True;
+          if not FRestrictPosters then
+          begin
+            //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
+            //Atualiza o registro principal local logo após o POST
+            self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
+          end;
         end;
+      end
+      else
+      begin
+        if vIdRemoto > 0 then
+          salvou := True;
       end;
     except
       on e: EIdHTTPProtocolException do
@@ -2024,8 +2045,12 @@ begin
         if not self.RegistroAindaExiste(pDataSetFila.FieldByName('tabela').AsString, pDataSetFila.FieldByName('id').AsString) then
           Result := True
         else
+        begin
           //Ainda existe mas não foi sincronizado por alguma regra no where do SELECT, então deve ser marcado como ignorado
+          Self.log('---- POST Condicional ----- Tabela: ' + pDataSetFila.FieldByName('tabela').AsString + ' ID: ' + pDataSetFila.FieldByName('id').AsString + #13#10 +
+                   ' foi IGNORADO, SQL: ' + qry.commandText);
           Result := False;
+        end;
         exit;
       end;
 
@@ -2215,6 +2240,7 @@ var
   lookupIdRemoto: integer;
   fk: string;
   ValorCampo: string;
+  vQry: TSQLDataSet;
 begin
   if fieldValue <> '' then
     ValorCampo := fieldValue
@@ -2244,6 +2270,15 @@ begin
         FIdRemotoEncontrado := False;
         self.Log(Format('O IdRemoto da tabela %s para o registro local %s não foi encontrado, verifique se a sincronização desta tabela está funcionando, ou as regras de POST',
                        [UpperCase(translation.lookupRemoteTable), ValorCampo]));
+
+        //Força inserir esse registro não encontrado na fila
+        vQry := dmPrincipal.getQuery;
+        try
+          vQry.CommandText := 'update ' + UpperCase(translation.lookupRemoteTable) + ' set ' + fk + ' = ' +  fk + ' where ' + fk + ' = ' + ValorCampo;
+          Self.ExecQuery(vQry);
+        finally
+          FreeAndNil(vQry);
+        end;
       end;
     end;
   end
