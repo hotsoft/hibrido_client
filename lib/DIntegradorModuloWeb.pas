@@ -214,20 +214,20 @@ type
     procedure Log(const aLog: string; aClasse: string = ''); virtual;
     function extraGetUrlParams: String; virtual;
     procedure beforeRedirectRecord(idAntigo, idNovo: integer); virtual;
-    function importRecord(node: IXMLDomNode; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean; virtual;
-    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): Boolean;
+    function importRecord(node: IXMLDomNode; var _LastId: Integer; var pDeleted: Boolean; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean; virtual;
+    function updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; var Deleted: Boolean; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): Boolean;
     function jaExiste(aNode:IXMLDOMNode; const id: integer; Integrador: TDataIntegradorModuloWeb; var aCustomWhere: string; var pIdLocal: Integer): Int64;
     function getFieldList(node: IXMLDomNode): string;
     function getFieldUpdateList(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
     function getFieldValues(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
-    function translateFieldValue(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string; virtual;
+    function translateFieldValue(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb; var FKDeleted: Boolean): string; virtual;
     function translateFieldNamePdvToServer(node: IXMLDomNode): string;
     function translateFieldNameServerToPdv(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string; virtual;
     function translateTypeValue(fieldType, fieldValue: string): string;
     function translateValueToServer(translation: TNameTranslation;
       fieldName: string; field: TField;
       nestedAttribute: string = ''; fkName: string = ''; fieldValue: String = ''): string; virtual;
-    function translateValueFromServer(fieldName, value: string; Integrador: TDataIntegradorModuloWeb): string; virtual;
+    function translateValueFromServer(fieldName, value: string; Integrador: TDataIntegradorModuloWeb; var FKDeleted: Boolean): string; virtual;
     procedure redirectRecord(idAntigo, idNovo: integer);
     function getFieldAdditionalList(node: IXMLDomNode): string; virtual;
     function getFieldAdditionalValues(node: IXMLDomNode): string; virtual;
@@ -285,8 +285,7 @@ type
     function GetIdAtual: Integer; virtual;
     procedure setNomePKLocal(const Value: string); virtual;
     procedure setIdAtual(const Value: Integer); virtual;
-    procedure SetQueryParameters(qry: TSQLDataSet; DMLOperation: TDMLOperation; node: IXMLDomNode; ChildrenNodes: TXMLNodeDictionary;
-      Integrador: TDataIntegradorModuloWeb); virtual;
+    procedure SetQueryParameters(qry: TSQLDataSet; DMLOperation: TDMLOperation; node: IXMLDomNode; ChildrenNodes: TXMLNodeDictionary; Integrador: TDataIntegradorModuloWeb; var pFKDeleted: Boolean); virtual;
     function GetDefaultValueForSalvouRetaguarda: Char; virtual;
     function getDefaultSQLStatementForPost(ID: Integer): string; virtual;
     function GetNomeFK: string; virtual;
@@ -345,7 +344,7 @@ type
     property OnException: TOnExceptionProcedure read FOnException write SetOnException;
     function getXMLFromServerByIdRemotoList(const aIdRemotoList: string; aRetornoStream: TStringStream; var aException: string): boolean; virtual;
     function ImportXMLFromServer(aDataIntegradorModuloWeb: TDataIntegradorModuloWeb;
-                                  aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
+                                  aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; var pDeleted: Boolean; aUpdateLastVersionId: boolean = True;
                                   aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
     function getRequestUrlForAction(toSave: boolean; versao: integer = -1): string; virtual;
     function getURL: string; virtual;
@@ -407,6 +406,7 @@ var
   vLog: string;
   retornoStream: TStringStream;
   vHTTP: TIdHTTP;
+  vFKDeleted: Boolean;
 begin
   keepImporting := true;
   while keepImporting do
@@ -441,7 +441,7 @@ begin
           Self.Log(vLog);
           raise EIntegradorException.Create(vLog);
         end;
-        keepImporting := Self.ImportXMLFromServer(Self, retornoStream, numRegistros, LastId);
+        keepImporting := Self.ImportXMLFromServer(Self, retornoStream, numRegistros, LastId, vFKDeleted);
       end;
     finally
       retornoStream.Free;
@@ -453,7 +453,7 @@ begin
 end;
 
 function TDataIntegradorModuloWeb.ImportXMLFromServer(aDataIntegradorModuloWeb:TDataIntegradorModuloWeb;
-                                                       aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; aUpdateLastVersionId: boolean = True;
+                                                       aRetornoStream: TStringStream; var aNumRegistros, aLastId: integer; var pDeleted: Boolean; aUpdateLastVersionId: boolean = True;
                                                        aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0 ) : Boolean;
 var
   doc: IXMLDomDocument2;
@@ -488,7 +488,7 @@ begin
         begin
           if (aDataIntegradorModuloWeb.nometabela = aTabelaIgnorar) and (StrToInt(node.selectSingleNode('id').text) = aIdRegistroIgnorar) then
             continue;
-          if not aDataIntegradorModuloWeb.importRecord(node, aLastId, aTabelaIgnorar, aIdRegistroIgnorar) and aDataIntegradorModuloWeb.StopOnGetRecordError then
+          if not aDataIntegradorModuloWeb.importRecord(node, aLastId, pDeleted, aTabelaIgnorar, aIdRegistroIgnorar) and aDataIntegradorModuloWeb.StopOnGetRecordError then
           begin
             Result := False;
             Break
@@ -625,7 +625,7 @@ begin
   result := 500;
 end;
 
-function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean;
+function TDataIntegradorModuloWeb.importRecord(node : IXMLDomNode; var _LastId: Integer; var pDeleted: Boolean; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0): boolean;
 var
   id: integer;
   _Trans: TDBXTransaction;
@@ -638,7 +638,7 @@ begin
     begin
       _Trans := dmPrincipal.startTransaction;
       try
-        Result := Self.updateInsertRecord(node, id, opGET, _LastId, aTabelaIgnorar, aIdRegistroIgnorar);
+        Result := Self.updateInsertRecord(node, id, opGET, _LastId, pDeleted, aTabelaIgnorar, aIdRegistroIgnorar);
         dmPrincipal.commit(_Trans);
       except
         on E:Exception do
@@ -742,7 +742,7 @@ begin
   Result := StringReplace(Result, '\t', #9, [rfReplaceAll]);
 end;
 
-procedure TDataIntegradorModuloWeb.SetQueryParameters(qry: TSQLDataSet; DMLOperation: TDMLOperation; node: IXMLDomNode;  ChildrenNodes: TXMLNodeDictionary;  Integrador: TDataIntegradorModuloWeb);
+procedure TDataIntegradorModuloWeb.SetQueryParameters(qry: TSQLDataSet; DMLOperation: TDMLOperation; node: IXMLDomNode;  ChildrenNodes: TXMLNodeDictionary;  Integrador: TDataIntegradorModuloWeb; var pFKDeleted: Boolean);
 var
   i: integer;
   ValorCampo: UTF8String;
@@ -759,7 +759,9 @@ begin
     end;
 
     name := LowerCase(translateFieldNameServerToPdv(node.childNodes.item[i], Integrador));
-    ValorCampo := UTF8Encode(translateFieldValue(node.childNodes.item[i], Integrador));
+    ValorCampo := UTF8Encode(translateFieldValue(node.childNodes.item[i], Integrador, pFKDeleted));
+    if pFKDeleted then
+      break;
     if name <> '*' then
     begin
       if Self.getIncludeFieldNameOnList(DMLOperation, name, Integrador) then
@@ -869,6 +871,7 @@ var
   _Trans: TDBXTransaction;
   _LastIdFilho: Integer;
   ResultPodeAtualizar: Integer;
+  FKDeleted: Boolean; //Na recursividade quando uma FK esta DELETADA, não deve inserir o registro dependente
 begin
   Result := False;
   _CustomWhere := EmptyStr;
@@ -888,6 +891,7 @@ begin
       
     if (jaExiste(node, id, Integrador, _CustomWhere, vIdLocal) > 0) or (not _CustomWhere.IsEmpty) or (pOperacao = opPOST) then
     begin
+      UtilsUnitAgendadorUn.WriteGreenLog('Update ' + Integrador.nomeTabela + ' - IdLocal: ' + IntToStr(vIdLocal) + ' IdRemoto: ' + IntToStr(id));
       if (pOperacao = opGET) then
       begin
         ResultPodeAtualizar := self.PodeAtualizar(Integrador.nomeTabela, id);
@@ -915,6 +919,7 @@ begin
       DMLOperation := dmInsert;
       FieldsListInsert := self.getFieldInsertList(node, Integrador);
       NewId := Integrador.getNewId(Node);
+      UtilsUnitAgendadorUn.WriteGreenLog('Insert ' + Integrador.nomeTabela + ' - Novo IdLocal: ' + IntToStr(NewId) + ' IdRemoto: ' + IntToStr(id));
       if NewId > 0 then
       begin
         vIdLocal := NewId;
@@ -934,7 +939,14 @@ begin
         qry.ParamByName(Integrador.nomePkLocal).AsInteger := NewId;
     end;
 
-    Self.SetQueryParameters(qry, DMLOperation, node, ChildrenNodes, Integrador);
+    Self.SetQueryParameters(qry, DMLOperation, node, ChildrenNodes, Integrador, FKDeleted);
+
+    if FKDeleted then //Esse registro não será inserido pois uma FK dependente foi excluida, sendo assim, esse registro não é mais necessario, provalmente foi apagado ou há um problema de integridade no banco
+    begin
+      UtilsUnitAgendadorUn.WritePurpleLog('FK consta como DELETED = TRUE no servidor, esse registro não será cadastrado');
+      Result := True;
+      Exit;
+    end;
     _trans := dmPrincipal.startTransaction;
     try
       Self.ExecQuery(qry);
@@ -1006,15 +1018,21 @@ begin
   end;
 end;   }
 
-function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
+function TDataIntegradorModuloWeb.updateInsertRecord(node: IXMLDomNode; const id: integer; pOperacao: String; var _LastId: Integer; var Deleted: Boolean; aTabelaIgnorar: String = ''; aIdRegistroIgnorar: Integer = 0) : Boolean;
 var
   handled : boolean;
 begin
+  Deleted := False;
   handled := False;
   Result := True;
   Self.BeforeUpdateInsertRecord(nil, Self, node, id, handled);
   if not handled then
-    Result := Self.ExecInsertRecord(node, id, Self, pOperacao, _LastId, aTabelaIgnorar, aIdRegistroIgnorar);
+    Result := Self.ExecInsertRecord(node, id, Self, pOperacao, _LastId, aTabelaIgnorar, aIdRegistroIgnorar)
+  else
+  begin
+    _LastId := 0;
+    Deleted := True;
+  end;
 end;
 
 procedure TDataIntegradorModuloWeb.updateSingletonRecord(node: IXMLDOMNode);
@@ -1055,6 +1073,7 @@ function TDataIntegradorModuloWeb.getFieldValues(node: IXMLDomNode; Integrador: 
 var
   i: integer;
   name: string;
+  vFKDeleted: Boolean;
 begin
   result := '(';
   if duasVias and ((nomeGenerator <> '') or (usePKLocalMethod)) then
@@ -1071,7 +1090,7 @@ begin
     name := translateFieldNameServerToPdv(node.childNodes.item[i], Integrador);
     if name <> '*' then
       if Self.getIncludeFieldNameOnList(dmInsert, name, Integrador) then
-        result := result + translateFieldValue(node.childNodes.item[i], Integrador) + ', ';
+        result := result + translateFieldValue(node.childNodes.item[i], Integrador, vFKDeleted) + ', ';
   end;
   result := copy(result, 0, length(result)-2);
   result := result + getFieldAdditionalValues(node);
@@ -1157,7 +1176,7 @@ begin
   Result := 'versao';
 end;
 
-function TDataIntegradorModuloWeb.translateFieldValue(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb): string;
+function TDataIntegradorModuloWeb.translateFieldValue(node: IXMLDomNode; Integrador: TDataIntegradorModuloWeb; var FKDeleted: Boolean): string;
 var
   typedTranslate: string;
 begin
@@ -1166,10 +1185,10 @@ begin
   else if (node.attributes.getNamedItem('type') <> nil) then
   begin
     typedTranslate := translateTypeValue(node.attributes.getNamedItem('type').text, node.text);
-    result := translateValueFromServer(node.nodeName, typedTranslate, Integrador);
+    result := translateValueFromServer(node.nodeName, typedTranslate, Integrador, FKDeleted);
   end
   else
-    result := translateValueFromServer(node.nodeName, node.text, Integrador);
+    result := translateValueFromServer(node.nodeName, node.text, Integrador, FKDeleted);
 end;
 
 function TDataIntegradorModuloWeb.translateTypeValue(fieldType, fieldValue: string): string;
@@ -1730,6 +1749,7 @@ var
   _Trans: TDBXTransaction;
   _LastId: Integer;
   vIdRemoto: Integer;
+  vFKDeleted: Boolean;
   //version_id: Int64;
 begin
   Self.log('Iniciando save record para remote. Classe: ' + ClassName, 'Sync');
@@ -1767,7 +1787,7 @@ begin
           begin
             //FRestrictPosters é usado para iniciar a sincronização do financeiro e estoque, nesse caso não deve pegar o registro atualizado
             //Atualiza o registro principal local logo após o POST
-            self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId);
+            self.updateInsertRecord(Result.selectNodes('//hash')[0],  Self.GetIdRemoto(Result), opPOST, _LastId, vFKDeleted);
           end;
         end;
       end
@@ -2315,7 +2335,7 @@ begin
   Result := 'dd"/"mm"/"yyyy"T"hh":"nn":"ss'
 end;
 
-function TDataIntegradorModuloWeb.translateValueFromServer(fieldName, value: string; Integrador: TDataIntegradorModuloWeb): string;
+function TDataIntegradorModuloWeb.translateValueFromServer(fieldName, value: string; Integrador: TDataIntegradorModuloWeb; var FKDeleted: Boolean): string;
 begin
   result := value;
 end;
